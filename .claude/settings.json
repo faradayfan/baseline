@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go test *)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(go mod *)",
+      "Bash(go env *)",
+      "Bash(go version *)",
+      "Bash(kubectl get *)",
+      "Bash(kubectl describe *)"
+    ]
+  }
+}
