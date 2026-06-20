@@ -98,10 +98,16 @@ func (s *Service) Resolve(ctx context.Context, q Query) ([]Item, error) {
 	args := []any{q.Namespaces}
 
 	// Optional tag filter: keep facts whose tags overlap the requested set (pg
-	// array overlap `&&`) OR that are authoritative (always-on baselines).
+	// array overlap `&&`), OR that always pass the read-path filter — two
+	// independent always-pass markers:
+	//   - authoritative:true — a mandatory baseline (also wins precedence, §14.9);
+	//   - tier:always        — the always-on DELIVERY tier (injected every session),
+	//                          orthogonal to precedence; see plugin tiered-injection.
+	// Both are delivery bypasses here; only authoritative also affects precedence
+	// (below). Keeping them separate keeps "what it is" and "when it's injected" apart.
 	if len(q.Tags) > 0 {
 		args = append(args, q.Tags)
-		sql += fmt.Sprintf(` AND (f.tags && $%d OR 'authoritative:true' = ANY(f.tags))`, len(args))
+		sql += fmt.Sprintf(` AND (f.tags && $%d OR 'authoritative:true' = ANY(f.tags) OR 'tier:always' = ANY(f.tags))`, len(args))
 	}
 
 	rows, err := s.pool.Query(ctx, sql, args...)

@@ -1,0 +1,6 @@
+# Topics this project cares about. The Baseline plugin's UserPromptSubmit hook
+# injects only tier:relevant facts tagged with one of these (per turn).
+# Comma- and/or newline-separated; '#' starts a comment.
+deploy
+backend
+go

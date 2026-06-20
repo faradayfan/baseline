@@ -74,7 +74,8 @@ func TestAPI_Context_TagFilter(t *testing.T) {
 	}
 }
 
-// TestAPI_Facts_TagFilter asserts ?tags= on GET /facts: ANY-match + authoritative bypass.
+// TestAPI_Facts_TagFilter asserts ?tags= on GET /facts: ANY-match + both
+// always-pass delivery markers (authoritative:true and tier:always).
 func TestAPI_Facts_TagFilter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
@@ -85,6 +86,7 @@ func TestAPI_Facts_TagFilter(t *testing.T) {
 	seedActiveFact(t, pool, org, "sec:tls", "use mTLS", []string{"security"}, nil)
 	seedActiveFact(t, pool, org, "fe:bundle", "tree-shake", []string{"frontend"}, nil)
 	seedActiveFact(t, pool, org, "base:ci", "via CI", []string{"authoritative:true"}, nil)
+	seedActiveFact(t, pool, org, "guard:tests", "run tests", []string{"tier:always"}, nil)
 
 	resp := api.Do(t, "GET", "/v1/facts?tags=security", nil, hdr("alice"))
 	var facts []map[string]any
@@ -93,8 +95,9 @@ func TestAPI_Facts_TagFilter(t *testing.T) {
 	for _, f := range facts {
 		got[f["canonical_key"].(string)] = true
 	}
-	if !got["sec:tls"] || !got["base:ci"] || got["fe:bundle"] {
-		t.Errorf("/facts?tags=security = %v, want sec:tls + base:ci only", got)
+	// security (ANY-match) + both always-pass markers; NOT the frontend fact.
+	if !got["sec:tls"] || !got["base:ci"] || !got["guard:tests"] || got["fe:bundle"] {
+		t.Errorf("/facts?tags=security = %v, want sec:tls + base:ci + guard:tests only", got)
 	}
 }
 

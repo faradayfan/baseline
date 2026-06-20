@@ -1,5 +1,16 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/inject-session.sh",
+            "timeout": 8
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

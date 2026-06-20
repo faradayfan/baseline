@@ -6,16 +6,48 @@ instead of hand-assembling hooks, an MCP config, and env vars.
 
 It bundles three things:
 
-1. **Context injection** (`UserPromptSubmit` hook) — prepends the caller's
-   Baseline `/context` (governed org facts + personal memories) above every
-   prompt. Fires in **every** project the plugin is enabled in: the org baseline
-   is meant to be everywhere.
+1. **Tiered context injection** (`SessionStart` + `UserPromptSubmit` hooks) — loads
+   the **always-on** facts once per session and the **relevant** facts per turn,
+   instead of dumping every fact into every prompt. See *Tiered injection* below.
 2. **Memory capture** (`Stop` hook) — when a reply contains a `[remember: …]`
    tag, posts that text to Baseline's out-of-band `/v1/memories` (→ Mem0).
    **Opt-in** (see below) so it does not fire in unrelated repos.
 3. **MCP tools** (HTTP MCP server) — exposes `get_context`, `search_facts`,
    `propose_fact`, `list_my_promotions`, `review_promotion` against
    `<backend_url>/mcp`, authenticated per-user with `X-Baseline-Principal`.
+
+## Tiered injection — keeping context clean as facts scale
+
+Injecting every fact into every prompt does not scale (at 100 facts that's
+~1.5k tokens *per turn*, mostly irrelevant). So a fact's **delivery tier** — a
+`tier:` tag — controls *when* it is injected, decoupled from *what* it is:
+
+| Tag on the fact | Injected | By which hook |
+| --- | --- | --- |
+| `tier:always` | **once per session** | `SessionStart` → the mandatory guardrails the agent must always know |
+| `tier:relevant` | **per turn, only if it matches this project's topics** | `UserPromptSubmit` |
+| `tier:ondemand` *(and any untagged fact)* | **never auto-injected** | the agent pulls it via the `search_facts` / `get_context` MCP tools when it needs it |
+
+**Default is lean:** a fact with no `tier:` tag is *not* auto-injected — you opt
+facts into injection, rather than opting out of a firehose.
+
+**Per-turn relevance comes from a project file.** Create **`.baseline-topics`** in
+the repo root listing the topic tags this project cares about (comma- and/or
+newline-separated; `#` starts a comment):
+
+```text
+# .baseline-topics
+deploy
+backend
+go
+```
+
+The `UserPromptSubmit` hook then injects only `tier:relevant` facts tagged with one
+of those topics. No `.baseline-topics` → nothing relevance-injected (lean).
+
+> `tier:` is **orthogonal to `authoritative:true`**. `authoritative` is a governance
+> property (a mandatory baseline that also *wins precedence*); `tier:` is purely a
+> *delivery* property (when it's injected). A fact can be either, both, or neither.
 
 ## Install
 

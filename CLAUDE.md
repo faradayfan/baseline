@@ -120,11 +120,21 @@ the conformance suite (§14) exists to catch violations.
 
 - **Tag filtering narrows the read path** (`/context` and `/facts`, `?tags=a,b,c`). It's an
   *optional* filter: no tags → everything; tags → facts carrying ANY of them (OR-match against the
-  `tags` column), **except `authoritative:true` facts always pass** (a mandatory baseline can't be
-  filtered out). Tags are opaque strings — Baseline ascribes no meaning; the caller (hook/MCP) decides
-  what they mean and supplies them. This is what lets an agent's running context subscribe to only the
-  relevant topics so injection scales past a handful of facts. Exposed on the `get_context` /
-  `search_facts` MCP tools too.
+  `tags` column), **except `authoritative:true` AND `tier:always` facts always pass** (two independent
+  always-pass markers — a mandatory baseline can't be filtered out). Tags are opaque strings — Baseline
+  ascribes no meaning; the caller (hook/MCP) decides what they mean and supplies them. This is what lets
+  an agent's running context subscribe to only the relevant topics so injection scales past a handful of
+  facts. Exposed on the `get_context` / `search_facts` MCP tools too.
+
+- **`tier:` is the delivery axis for tiered injection (plugin convention, orthogonal to governance).**
+  A fact's `tier:` tag controls *when* the plugin injects it, decoupled from *what* it is and from
+  `authoritative` (which is precedence governance, §14.9): `tier:always` → injected once per session
+  (`SessionStart` hook); `tier:relevant` → injected per-turn when it matches the project's declared
+  topics (`UserPromptSubmit` hook + a repo's `.baseline-topics` file); `tier:ondemand`/untagged → never
+  auto-injected, the agent pulls via MCP tools. The backend only adds `tier:always` as a second
+  always-pass tag-filter bypass alongside `authoritative` — all tier policy lives in the plugin hooks,
+  not the governance core. The cognitive **`type:`** axis (semantic/procedural/episodic) and write-path
+  capture are a deferred follow-up; `tier:` alone solves injection bloat.
 
 - **Auto-promotion is a pluggable, versioned engine** (`AutoPromoteEngine`, selected per namespace
   by a `family/vN` ID like `simple/v1`). It must **fail closed** (any error/timeout/invalid rules ⇒

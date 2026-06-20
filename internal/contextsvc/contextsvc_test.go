@@ -114,6 +114,85 @@ func TestResolve_TagFilter(t *testing.T) {
 	}
 }
 
+// TestResolve_TierAlwaysBypass asserts the `tier:always` delivery tier: a fact
+// tagged tier:always ALWAYS passes the read-path tag filter (so a SessionStart
+// hook can fetch exactly the always-on set via ?tags=tier:always), AND that this
+// is purely a delivery concern — tier:always does NOT affect precedence (it is
+// orthogonal to authoritative:true, which does). This is the load-bearing
+// separation between "when injected" (tier) and "what wins" (authoritative).
+func TestResolve_TierAlwaysBypass(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	pool := storetest.Shared(t).FreshDB(t)
+	ctx := context.Background()
+	var org, team uuid.UUID
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO namespaces (name, kind) VALUES ('org','org') RETURNING id`).Scan(&org); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO namespaces (name, kind, parent_id) VALUES ('team:eng','team',$1) RETURNING id`, org).Scan(&team); err != nil {
+		t.Fatal(err)
+	}
+
+	// A guardrail tagged tier:always (topic 'testing'); an unrelated semantic fact.
+	seedTaggedFact(t, pool, org, "guard:tests", "run tests before commit", []string{"tier:always", "testing"})
+	seedTaggedFact(t, pool, org, "sem:auth", "auth uses JWT", []string{"backend", "auth"})
+
+	svc := contextsvc.NewService(pool, null.New())
+	keys := func(tags []string) map[string]bool {
+		items, err := svc.Resolve(ctx, contextsvc.Query{Namespaces: []uuid.UUID{org, team}, Tags: tags})
+		if err != nil {
+			t.Fatalf("resolve %v: %v", tags, err)
+		}
+		out := map[string]bool{}
+		for _, it := range items {
+			out[it.CanonicalKey] = true
+		}
+		return out
+	}
+
+	// A SessionStart-style query: tags=[tier:always] returns ONLY the always-on
+	// fact (matches as a literal tag) — the unrelated semantic fact is filtered out.
+	always := keys([]string{"tier:always"})
+	if !always["guard:tests"] {
+		t.Errorf("tags=tier:always must include the guardrail, got %v", always)
+	}
+	if always["sem:auth"] {
+		t.Errorf("tags=tier:always must NOT include the unrelated semantic fact, got %v", always)
+	}
+
+	// The bypass: a tag filter that matches NOTHING still returns the tier:always
+	// fact (it always passes the read-path filter, like authoritative does).
+	bypass := keys([]string{"nonexistent-topic"})
+	if !bypass["guard:tests"] {
+		t.Errorf("tier:always must bypass a non-matching tag filter, got %v", bypass)
+	}
+	if bypass["sem:auth"] {
+		t.Errorf("non-matching filter must not surface the semantic fact, got %v", bypass)
+	}
+
+	// Orthogonality: tier:always is delivery-only and must NOT win precedence.
+	// Same canonical_key in org (tier:always) and the more-specific team (plain).
+	// The more-specific team fact must win — tier:always does not override.
+	seedTaggedFact(t, pool, org, "build.cmd:svc", "org: make", []string{"tier:always"})
+	seedTaggedFact(t, pool, team, "build.cmd:svc", "team: bazel", nil)
+	var winner string
+	items, err := svc.Resolve(ctx, contextsvc.Query{Namespaces: []uuid.UUID{org, team}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items {
+		if it.CanonicalKey == "build.cmd:svc" {
+			winner = it.Statement
+		}
+	}
+	if winner != "team: bazel" {
+		t.Errorf("tier:always must NOT win precedence — expected the more-specific team fact, got %q", winner)
+	}
+}
+
 // TestResolve_StandardsOnly asserts §11.2: with the null source, /context serves
 // only facts and include_memories yields no memories and no error (the coupling
 // guarantee — the system runs fully with the memory dependency removed).

@@ -70,7 +70,7 @@ type ListFilter struct {
 	Status       *Status
 	CanonicalKey *string
 	Tag          *string  // single-tag exact membership (legacy)
-	Tags         []string // ANY-of these tags (OR); authoritative:true always passes
+	Tags         []string // ANY-of these tags (OR); authoritative:true and tier:always always pass
 	Text         *string  // q: case-insensitive substring over statement (pre-semantic)
 	Limit        int
 }
@@ -97,8 +97,10 @@ func List(ctx context.Context, q Querier, f ListFilter) ([]Fact, error) {
 		add(" AND $%d = ANY(tags)", *f.Tag)
 	}
 	if len(f.Tags) > 0 {
-		// ANY-of-tags (pg array overlap), with authoritative facts always passing.
-		add(" AND (tags && $%d OR 'authoritative:true' = ANY(tags))", f.Tags)
+		// ANY-of-tags (pg array overlap), with two always-pass delivery markers:
+		// authoritative:true (mandatory baseline) and tier:always (always-on
+		// injection tier). Mirrors contextsvc's read-path filter.
+		add(" AND (tags && $%d OR 'authoritative:true' = ANY(tags) OR 'tier:always' = ANY(tags))", f.Tags)
 	}
 	if f.Text != nil {
 		add(" AND statement ILIKE '%%' || $%d || '%%'", *f.Text)
