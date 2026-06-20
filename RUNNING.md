@@ -171,6 +171,37 @@ through the governed MCP/REST path.
 > created at the OpenAI size — drop it (`DROP TABLE memories;` in mem0-postgres)
 > and re-add; the patched image creates it at 768 to match nomic-embed-text.
 
+### Memory capture (harness → Mem0, via Baseline)
+
+The spec puts memory _capture_ outside Baseline: Mem0 answers "what has this agent
+seen?", fed by the agent runtime (§1, §11.2). To wire **Claude Code** into that
+path, Baseline exposes a thin **out-of-band** write-proxy and a Stop hook drives it:
+
+- **`POST /v1/memories`** (`{content, actor_id?, metadata?}`, `X-Baseline-Principal`)
+  pass-throughs to Mem0's write API. It is a documented exception to the §11
+  read-only boundary — it does **not** touch the fact store or `/context` resolver,
+  and rides a separate `memory.Writer` capability (the read-only `memory.Source`
+  port is unchanged). Standards-only (`MEMORY_SOURCE=none`) returns **501**.
+- **Stop hook** [`.claude/hooks/capture-memory.sh`](.claude/hooks/capture-memory.sh)
+  (registered in `.claude/settings.json`): when a reply contains a
+  **`[remember: …]`** tag, the hook scrapes it and POSTs it to
+  `$BASELINE_CONTEXT_URL/v1/memories` as `$BASELINE_PRINCIPAL`. Nothing is captured
+  without the explicit tag. Mem0 then runs its own LLM extraction (so stored text
+  may be rephrased), and the memory surfaces in `/context` as `source: memory`.
+
+```bash
+# manual smoke test of the proxy:
+curl -s -X POST http://localhost:8080/v1/memories \
+  -H 'Content-Type: application/json' -H 'X-Baseline-Principal: john' \
+  -d '{"content":"I always run go vet before pushing"}' | python3 -m json.tool
+# then confirm it merges into the read path:
+curl -s "http://localhost:8080/v1/context?include_memories=true" \
+  -H 'X-Baseline-Principal: john' | python3 -m json.tool
+```
+
+This is **capture**, not governance: a captured memory is raw and unreviewed. To
+make it an official **fact**, it still goes through propose → review → approve.
+
 ## Remote (Raspberry Pi k3s cluster)
 
 This deploys Baseline centrally and connects a local Claude to it over the

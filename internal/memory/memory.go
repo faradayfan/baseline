@@ -37,8 +37,26 @@ type SearchOpts struct {
 
 // Source is the entire contract Baseline needs from a memory backend. Mem0 is
 // the default adapter; null (standards-only), zep, and letta are others.
+//
+// Source is READ-ONLY by design (§11): the governance core — fact promotion,
+// the /context resolver — never writes to the backend. This is the coupling
+// guarantee, and it stays intact.
 type Source interface {
 	List(ctx context.Context, actorID string, opts ListOpts) ([]Memory, error)
 	Search(ctx context.Context, actorID, query string, opts SearchOpts) ([]Memory, error)
 	Get(ctx context.Context, id string) (Memory, error)
+}
+
+// Writer is a SEPARATE, optional capability for the out-of-band memory-capture
+// path (the agent harness adding raw memories), deliberately NOT part of Source.
+// The spec puts memory *capture* outside Baseline — Mem0 answers "what has this
+// agent seen?", fed by the agent runtime (§1, §11.2). Baseline exposes a thin
+// pass-through (POST /v1/memories) only as a harness convenience so a Claude
+// Code hook has one URL to hit; the governance read-path does not use this.
+//
+// An adapter MAY implement Writer; the server type-asserts for it and returns
+// 501 when the configured source can't write (e.g. the null source). Keeping it
+// off Source means zep/letta/null need not grow a write method.
+type Writer interface {
+	Add(ctx context.Context, actorID, content string, metadata map[string]any) (Memory, error)
 }

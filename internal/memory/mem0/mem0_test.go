@@ -2,8 +2,10 @@ package mem0_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/faradayfan/baseline/internal/memory"
@@ -93,6 +95,57 @@ func TestGet_OSSPath(t *testing.T) {
 		t.Errorf("get not mapped: %+v", m)
 	}
 }
+
+// TestAdd_OSSPathAndExtract asserts Add POSTs to /memories with the messages/
+// user_id shape and returns the first extracted memory from the {results:[...]}
+// envelope (Mem0 runs LLM extraction, so the stored text may differ from input).
+func TestAdd_OSSPathAndExtract(t *testing.T) {
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		// Mem0 echoes the extracted (rephrased) memory.
+		_, _ = w.Write([]byte(`{"results":[{"id":"m9","user_id":"john","memory":"Prefers Friday deploys","created_at":"2026-06-20T00:00:00Z"}]}`))
+	}))
+	defer srv.Close()
+
+	src := mem0.New(srv.URL, "")
+	m, err := src.Add(context.Background(), "john", "I like to deploy on Fridays", nil)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if gotPath != "/memories" {
+		t.Errorf("path = %q, want /memories", gotPath)
+	}
+	if !contains(gotBody, `"user_id":"john"`) || !contains(gotBody, `"role":"user"`) {
+		t.Errorf("body missing messages/user_id shape: %s", gotBody)
+	}
+	if m.ID != "m9" || m.Content != "Prefers Friday deploys" {
+		t.Errorf("Add did not return the extracted memory: %+v", m)
+	}
+}
+
+// TestAdd_DedupNoOpEchoes asserts that when Mem0 extracts nothing (a dedup
+// no-op, results:[]), Add echoes the input rather than erroring or returning an
+// empty record — the caller gets a clean non-error signal.
+func TestAdd_DedupNoOpEchoes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer srv.Close()
+
+	src := mem0.New(srv.URL, "")
+	m, err := src.Add(context.Background(), "john", "already known", nil)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if m.ActorID != "john" || m.Content != "already known" {
+		t.Errorf("dedup no-op should echo input, got %+v", m)
+	}
+}
+
+func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
 // TestAuthHeader: a configured API key is sent as a Bearer token; an empty key
 // sends no Authorization header (the OSS server needs none).

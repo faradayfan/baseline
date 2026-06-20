@@ -28,6 +28,12 @@ type Server struct {
 	engines  *autopromote.Registry
 	auth     Authenticator
 
+	// mem is the configured memory source. Reads go through contextsvc; this
+	// reference exists only so the out-of-band capture handler (POST /v1/memories)
+	// can type-assert for memory.Writer. nil-safe: the null source is non-nil but
+	// does not implement Writer, so writes 501.
+	mem memory.Source
+
 	// middleware are applied (outermost-first) around the whole router — e.g. the
 	// OTEL span middleware. Optional; set via Use.
 	middleware []func(http.Handler) http.Handler
@@ -65,6 +71,7 @@ func NewWithMemory(pool *pgxpool.Pool, auth Authenticator, mem memory.Source) *S
 		context:  contextsvc.NewService(pool, mem),
 		engines:  engines,
 		auth:     auth,
+		mem:      mem,
 	}
 }
 
@@ -123,6 +130,12 @@ func (s *Server) Handler() http.Handler {
 		})
 
 		r.Get("/context", s.getContext)
+
+		// Out-of-band memory capture (§11 boundary note): a thin pass-through to
+		// the backend's write API so the agent harness has ONE Baseline URL to post
+		// raw memories to. Not part of the governance read-path; 501s when the
+		// configured source can't write (e.g. standards-only / null source).
+		r.Post("/memories", s.addMemory)
 	})
 
 	// Apply registered middleware outermost-first (e.g. OTEL spans wrap everything).

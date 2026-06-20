@@ -198,6 +198,31 @@ paths:
       responses:
         "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/ContextItem" } } } } }
 
+  /memories:
+    post:
+      tags: [memory]
+      summary: Out-of-band memory capture (harness convenience — NOT governance core)
+      description: >
+        A thin pass-through to the configured memory backend's write API, so the
+        agent harness has one Baseline URL to post raw memories to. This is a
+        deliberate, documented exception to the §11 read-only boundary: it does
+        NOT touch the fact store or the /context read-path, and rides a SEPARATE
+        optional memory.Writer capability (the read-only memory.Source contract is
+        unchanged). actor_id defaults to the authenticated principal. Returns 501
+        when the configured backend can't write (standards-only / null source).
+        The backend (Mem0) runs its own extraction, so the stored text may be
+        rephrased or split.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddMemoryRequest" }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Memory" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "501": { description: Backend is read-only (no capture path), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "502": { description: Backend write failed, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer }
@@ -344,6 +369,23 @@ components:
         canonical_key: { type: string }
         valid_to: { type: string, format: date-time, nullable: true }
         tags: { type: array, items: { type: string } }
+
+    AddMemoryRequest:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, description: raw text to remember; the backend may rephrase/split it }
+        actor_id: { type: string, description: defaults to the authenticated principal }
+        metadata: { type: object, additionalProperties: true }
+
+    Memory:
+      type: object
+      properties:
+        id: { type: string }
+        actor_id: { type: string }
+        content: { type: string }
+        metadata: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
 
     Comment:
       type: object
