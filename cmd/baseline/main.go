@@ -11,9 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/faradayfan/baseline/internal/platform"
+	"github.com/faradayfan/baseline/internal/server"
 	"github.com/faradayfan/baseline/internal/store"
 )
 
@@ -41,19 +40,13 @@ func main() {
 	}
 	defer st.Close()
 
-	r := chi.NewRouter()
-	r.Get("/healthz", func(w http.ResponseWriter, req *http.Request) {
-		if err := st.Pool.Ping(req.Context()); err != nil {
-			http.Error(w, "unhealthy", http.StatusServiceUnavailable)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+	// NOTE: HeaderAuthenticator is for local/dev use only. Production must wire
+	// an OIDC/mTLS authenticator here (§13) before exposing the service.
+	app := server.New(st.Pool, server.HeaderAuthenticator{})
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           r,
+		Handler:           app.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
