@@ -77,6 +77,20 @@ You should now see five tools: `get_context`, `search_facts`, `propose_fact`,
 `list_my_promotions`, `review_promotion`. Try: _"use search_facts to list the
 org's facts."_ It should return the seeded deploy-policy fact.
 
+> **Productized install — the Baseline plugin.** The `.mcp.json` + hooks above are
+> the hand-wired setup. For onboarding real users, [`plugin/`](plugin/README.md)
+> packages all of it (context-injection hook, `[remember: …]` capture hook, and the
+> HTTP MCP server) as one Claude Code plugin, parameterized per-user at install time
+> by **Baseline URL** + **principal**:
+>
+> ```text
+> /plugin marketplace add faradayfan/baseline
+> /plugin install baseline      # prompts for URL + principal, then wires everything
+> ```
+>
+> Context injection then runs in every project; memory capture is opt-in per repo
+> (`touch .baseline-capture`). See [plugin/README.md](plugin/README.md).
+
 ### CLI alternative
 
 If you use the standalone `claude` CLI instead of the extension:

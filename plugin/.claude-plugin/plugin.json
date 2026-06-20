@@ -1,0 +1,32 @@
+{
+  "name": "baseline",
+  "displayName": "Baseline — Org Facts & Memory",
+  "version": "0.1.0",
+  "description": "Inject your org's governed facts (and personal memories) into every Claude Code session, capture new memories with a [remember: …] tag, and expose Baseline's MCP tools. Point it at your Baseline deployment and identity.",
+  "author": { "name": "Baseline" },
+  "homepage": "https://github.com/faradayfan/baseline",
+  "repository": "https://github.com/faradayfan/baseline",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
+  "userConfig": {
+    "backend_url": {
+      "type": "string",
+      "title": "Baseline URL",
+      "description": "Your Baseline deployment, e.g. https://baseline.acme.com (no trailing slash)",
+      "required": true
+    },
+    "principal": {
+      "type": "string",
+      "title": "Your principal / identity",
+      "description": "Your Baseline actor id (e.g. your email). Sent as X-Baseline-Principal. Dev/POC identity; real deployments resolve this from OIDC.",
+      "required": true
+    },
+    "api_token": {
+      "type": "string",
+      "title": "API token (optional)",
+      "description": "Bearer token, if your Baseline requires auth. Leave blank for the open dev/POC deployment.",
+      "sensitive": true,
+      "required": false
+    }
+  }
+}

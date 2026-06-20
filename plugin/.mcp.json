@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "baseline": {
+      "type": "http",
+      "url": "${user_config.backend_url}/mcp",
+      "headers": {
+        "X-Baseline-Principal": "${user_config.principal}",
+        "Authorization": "Bearer ${user_config.api_token}"
+      }
+    }
+  }
+}
