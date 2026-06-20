@@ -73,12 +73,12 @@ func (b *Bridge) Server() *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_context",
-		Description: "Return the precedence-resolved facts (and optionally personal memories) the caller is entitled to. Maps to GET /context.",
+		Description: "Return the precedence-resolved facts (and optionally personal memories) the caller is entitled to. Optionally narrow with `tags` (comma-separated; returns facts carrying ANY of them, plus always-on authoritative baselines). Maps to GET /context.",
 	}, wrap(b.getContext))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_facts",
-		Description: "Search active facts the caller can read. Maps to GET /facts?q=.",
+		Description: "Search active facts the caller can read. Optionally narrow with `tags` (comma-separated, ANY-match; authoritative facts always included). Maps to GET /facts.",
 	}, wrap(b.searchFacts))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -118,6 +118,7 @@ type getContextIn struct {
 	Namespaces      string `json:"namespaces,omitempty"` // comma-separated ids
 	IncludeMemories bool   `json:"include_memories,omitempty"`
 	Limit           int    `json:"limit,omitempty"`
+	Tags            string `json:"tags,omitempty"` // comma-separated; ANY-match (authoritative always included)
 }
 
 type searchFactsIn struct {
@@ -125,6 +126,7 @@ type searchFactsIn struct {
 	Namespace string `json:"namespace,omitempty"`
 	Status    string `json:"status,omitempty"`
 	Tag       string `json:"tag,omitempty"`
+	Tags      string `json:"tags,omitempty"` // comma-separated; ANY-match (authoritative always included)
 	Limit     int    `json:"limit,omitempty"`
 }
 
@@ -159,6 +161,9 @@ func (b *Bridge) getContext(ctx context.Context, in getContextIn) (*mcp.CallTool
 	if in.IncludeMemories {
 		q.Set("include_memories", "true")
 	}
+	if in.Tags != "" {
+		q.Set("tags", in.Tags)
+	}
 	if in.Limit > 0 {
 		q.Set("limit", fmt.Sprint(in.Limit))
 	}
@@ -167,7 +172,7 @@ func (b *Bridge) getContext(ctx context.Context, in getContextIn) (*mcp.CallTool
 
 func (b *Bridge) searchFacts(ctx context.Context, in searchFactsIn) (*mcp.CallToolResult, any, error) {
 	q := url.Values{}
-	for k, v := range map[string]string{"q": in.Query, "namespace": in.Namespace, "status": in.Status, "tag": in.Tag} {
+	for k, v := range map[string]string{"q": in.Query, "namespace": in.Namespace, "status": in.Status, "tag": in.Tag, "tags": in.Tags} {
 		if v != "" {
 			q.Set(k, v)
 		}

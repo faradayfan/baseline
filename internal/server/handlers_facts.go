@@ -48,6 +48,9 @@ func (s *Server) listFacts(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("tag"); v != "" {
 		filter.Tag = &v
 	}
+	if tags := parseCSV(q.Get("tags")); tags != nil {
+		filter.Tags = tags
+	}
 	if v := q.Get("q"); v != "" {
 		filter.Text = &v
 	}

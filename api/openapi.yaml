@@ -149,7 +149,8 @@ paths:
         - { name: namespace, in: query, schema: { type: string, format: uuid } }
         - { name: status, in: query, schema: { $ref: "#/components/schemas/FactStatus" } }
         - { name: canonical_key, in: query, schema: { type: string } }
-        - { name: tag, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string }, description: single-tag exact membership }
+        - { name: tags, in: query, schema: { type: string }, description: "comma-separated; ANY-match. authoritative:true facts are always included" }
         - { name: q, in: query, schema: { type: string }, description: substring over statement }
         - { name: limit, in: query, schema: { type: integer } }
       responses:
@@ -191,6 +192,7 @@ paths:
       parameters:
         - { name: actor_id, in: query, schema: { type: string } }
         - { name: namespaces, in: query, schema: { type: string }, description: comma-separated ids; intersected with entitlements }
+        - { name: tags, in: query, schema: { type: string }, description: "comma-separated; narrows to facts carrying ANY of them. authoritative:true facts are always included" }
         - { name: include_memories, in: query, schema: { type: boolean } }
         - { name: limit, in: query, schema: { type: integer } }
       responses:

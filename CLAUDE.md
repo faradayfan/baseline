@@ -118,6 +118,14 @@ the conformance suite (§14) exists to catch violations.
   facts tagged `authoritative:true` always win. Personal memories merge in at lowest precedence
   and never override a fact.
 
+- **Tag filtering narrows the read path** (`/context` and `/facts`, `?tags=a,b,c`). It's an
+  *optional* filter: no tags → everything; tags → facts carrying ANY of them (OR-match against the
+  `tags` column), **except `authoritative:true` facts always pass** (a mandatory baseline can't be
+  filtered out). Tags are opaque strings — Baseline ascribes no meaning; the caller (hook/MCP) decides
+  what they mean and supplies them. This is what lets an agent's running context subscribe to only the
+  relevant topics so injection scales past a handful of facts. Exposed on the `get_context` /
+  `search_facts` MCP tools too.
+
 - **Auto-promotion is a pluggable, versioned engine** (`AutoPromoteEngine`, selected per namespace
   by a `family/vN` ID like `simple/v1`). It must **fail closed** (any error/timeout/invalid rules ⇒
   fall back to human review, never auto-approve on uncertainty), be **deterministic**, write an

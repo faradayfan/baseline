@@ -41,6 +41,79 @@ func seedOrgFact(t *testing.T, pool *pgxpool.Pool, key, statement string) uuid.U
 	return ns
 }
 
+// seedTaggedFact inserts an active fact with tags into an existing namespace.
+func seedTaggedFact(t *testing.T, pool *pgxpool.Pool, ns uuid.UUID, key, statement string, tags []string) {
+	t.Helper()
+	if tags == nil {
+		tags = []string{}
+	}
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO facts (namespace_id, statement, subject, canonical_key, status, tags, created_by, valid_from)
+		VALUES ($1,$2,'{}'::jsonb,$3,'active',$4,'seed',now())`, ns, statement, key, tags); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestResolve_TagFilter covers the three tag-filter behaviors: empty tags =
+// passthrough (all facts), supplied tags = ANY-match narrowing, and the
+// authoritative:true bypass (always returned regardless of tags).
+func TestResolve_TagFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	pool := storetest.Shared(t).FreshDB(t)
+	ctx := context.Background()
+	var ns uuid.UUID
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO namespaces (name, kind) VALUES ('org','org') RETURNING id`).Scan(&ns); err != nil {
+		t.Fatal(err)
+	}
+	seedTaggedFact(t, pool, ns, "sec:tls", "use mTLS", []string{"security", "backend"})
+	seedTaggedFact(t, pool, ns, "fe:bundle", "tree-shake the bundle", []string{"frontend"})
+	seedTaggedFact(t, pool, ns, "base:ci", "deploys go through CI", []string{"authoritative:true"})
+
+	svc := contextsvc.NewService(pool, null.New())
+	keys := func(tags []string) map[string]bool {
+		items, err := svc.Resolve(ctx, contextsvc.Query{Namespaces: []uuid.UUID{ns}, Tags: tags})
+		if err != nil {
+			t.Fatalf("resolve %v: %v", tags, err)
+		}
+		out := map[string]bool{}
+		for _, it := range items {
+			out[it.CanonicalKey] = true
+		}
+		return out
+	}
+
+	// Empty tags → everything (passthrough, backward-compatible).
+	all := keys(nil)
+	if !all["sec:tls"] || !all["fe:bundle"] || !all["base:ci"] || len(all) != 3 {
+		t.Errorf("no tags should return all 3 facts, got %v", all)
+	}
+
+	// tags=[security] → the security fact (ANY-match) + the authoritative one (bypass),
+	// NOT the frontend one.
+	sec := keys([]string{"security"})
+	if !sec["sec:tls"] || !sec["base:ci"] {
+		t.Errorf("tags=security should include the security + authoritative facts, got %v", sec)
+	}
+	if sec["fe:bundle"] {
+		t.Errorf("tags=security must NOT include the frontend fact, got %v", sec)
+	}
+
+	// tags=[devops] (matches nothing) → only the authoritative baseline survives.
+	none := keys([]string{"devops"})
+	if len(none) != 1 || !none["base:ci"] {
+		t.Errorf("non-matching tags should return only the authoritative fact, got %v", none)
+	}
+
+	// OR-match: tags=[frontend, security] → both tagged facts + authoritative.
+	both := keys([]string{"frontend", "security"})
+	if !both["sec:tls"] || !both["fe:bundle"] || !both["base:ci"] {
+		t.Errorf("OR-match should include both tagged facts + authoritative, got %v", both)
+	}
+}
+
 // TestResolve_StandardsOnly asserts §11.2: with the null source, /context serves
 // only facts and include_memories yields no memories and no error (the coupling
 // guarantee — the system runs fully with the memory dependency removed).

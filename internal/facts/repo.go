@@ -69,8 +69,9 @@ type ListFilter struct {
 	Namespaces   []uuid.UUID // restrict to these (caller's entitlements)
 	Status       *Status
 	CanonicalKey *string
-	Tag          *string
-	Text         *string // q: case-insensitive substring over statement (pre-semantic)
+	Tag          *string  // single-tag exact membership (legacy)
+	Tags         []string // ANY-of these tags (OR); authoritative:true always passes
+	Text         *string  // q: case-insensitive substring over statement (pre-semantic)
 	Limit        int
 }
 
@@ -94,6 +95,10 @@ func List(ctx context.Context, q Querier, f ListFilter) ([]Fact, error) {
 	}
 	if f.Tag != nil {
 		add(" AND $%d = ANY(tags)", *f.Tag)
+	}
+	if len(f.Tags) > 0 {
+		// ANY-of-tags (pg array overlap), with authoritative facts always passing.
+		add(" AND (tags && $%d OR 'authoritative:true' = ANY(tags))", f.Tags)
 	}
 	if f.Text != nil {
 		add(" AND statement ILIKE '%%' || $%d || '%%'", *f.Text)

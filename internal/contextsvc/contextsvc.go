@@ -59,6 +59,12 @@ type Query struct {
 	Namespaces      []uuid.UUID // the caller's ENTITLED namespaces (already authorized)
 	IncludeMemories bool
 	Limit           int
+
+	// Tags optionally narrows facts to those carrying ANY of these tags (OR). An
+	// empty set means no filtering (all entitled facts). Facts tagged
+	// `authoritative:true` ALWAYS pass regardless of Tags — a mandatory baseline
+	// can't be filtered out. Tags are opaque strings; Baseline ascribes no meaning.
+	Tags []string
 }
 
 // kindRank orders namespace kinds by specificity (§6): user ▸ project ▸ team ▸ org.
@@ -81,7 +87,7 @@ func (s *Service) Resolve(ctx context.Context, q Query) ([]Item, error) {
 	// Active, non-expired facts in the entitled namespaces only. Filtering by
 	// status='active' and valid_to here enforces §14.4 at the query level; the
 	// namespace IN (...) clause enforces §14.3.
-	const sql = `
+	sql := `
 		SELECT f.canonical_key, f.statement, f.namespace_id, n.kind, f.confidence,
 		       f.valid_to, f.tags, f.metadata
 		FROM facts f
@@ -89,7 +95,16 @@ func (s *Service) Resolve(ctx context.Context, q Query) ([]Item, error) {
 		WHERE f.status = 'active'
 		  AND f.namespace_id = ANY($1)
 		  AND (f.valid_to IS NULL OR f.valid_to > now())`
-	rows, err := s.pool.Query(ctx, sql, q.Namespaces)
+	args := []any{q.Namespaces}
+
+	// Optional tag filter: keep facts whose tags overlap the requested set (pg
+	// array overlap `&&`) OR that are authoritative (always-on baselines).
+	if len(q.Tags) > 0 {
+		args = append(args, q.Tags)
+		sql += fmt.Sprintf(` AND (f.tags && $%d OR 'authoritative:true' = ANY(f.tags))`, len(args))
+	}
+
+	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("contextsvc: query facts: %w", err)
 	}

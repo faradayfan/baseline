@@ -36,6 +36,68 @@ func seedFactStatus(t *testing.T, pool *pgxpool.Pool, ns uuid.UUID, key, stateme
 	}
 }
 
+// TestAPI_Context_TagFilter asserts ?tags= narrows /context by ANY-match, with
+// authoritative:true facts always included.
+func TestAPI_Context_TagFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	api, pool := newAPI(t)
+	org := seedNamespace(t, pool, "org", "org", nil)
+	grant(t, pool, "alice", org, "reader")
+	seedActiveFact(t, pool, org, "sec:tls", "use mTLS", []string{"security"}, nil)
+	seedActiveFact(t, pool, org, "fe:bundle", "tree-shake", []string{"frontend"}, nil)
+	seedActiveFact(t, pool, org, "base:ci", "via CI", []string{"authoritative:true"}, nil)
+
+	keys := func(qs string) map[string]bool {
+		resp := api.Do(t, "GET", "/v1/context"+qs, nil, hdr("alice"))
+		var items []map[string]any
+		storetest.DecodeJSON(t, resp, &items)
+		out := map[string]bool{}
+		for _, it := range items {
+			if k, ok := it["canonical_key"].(string); ok {
+				out[k] = true
+			}
+		}
+		return out
+	}
+
+	// tags=security → security fact + authoritative; not frontend.
+	sec := keys("?tags=security")
+	if !sec["sec:tls"] || !sec["base:ci"] || sec["fe:bundle"] {
+		t.Errorf("?tags=security = %v, want sec:tls + base:ci only", sec)
+	}
+	// no tags → everything.
+	all := keys("")
+	if len(all) != 3 {
+		t.Errorf("no tags should return all 3, got %v", all)
+	}
+}
+
+// TestAPI_Facts_TagFilter asserts ?tags= on GET /facts: ANY-match + authoritative bypass.
+func TestAPI_Facts_TagFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	api, pool := newAPI(t)
+	org := seedNamespace(t, pool, "org", "org", nil)
+	grant(t, pool, "alice", org, "reader")
+	seedActiveFact(t, pool, org, "sec:tls", "use mTLS", []string{"security"}, nil)
+	seedActiveFact(t, pool, org, "fe:bundle", "tree-shake", []string{"frontend"}, nil)
+	seedActiveFact(t, pool, org, "base:ci", "via CI", []string{"authoritative:true"}, nil)
+
+	resp := api.Do(t, "GET", "/v1/facts?tags=security", nil, hdr("alice"))
+	var facts []map[string]any
+	storetest.DecodeJSON(t, resp, &facts)
+	got := map[string]bool{}
+	for _, f := range facts {
+		got[f["canonical_key"].(string)] = true
+	}
+	if !got["sec:tls"] || !got["base:ci"] || got["fe:bundle"] {
+		t.Errorf("/facts?tags=security = %v, want sec:tls + base:ci only", got)
+	}
+}
+
 // TestAPI_Context_NoLeakOutsideEntitlements asserts §14.3: /context never
 // returns a fact outside the caller's entitled namespaces.
 func TestAPI_Context_NoLeakOutsideEntitlements(t *testing.T) {

@@ -164,6 +164,37 @@ func TestGetContext_MapsToREST(t *testing.T) {
 	}
 }
 
+// TestGetContext_TagFilter asserts the `tags` tool arg narrows get_context over
+// the wire (ANY-match), with authoritative facts always passing.
+func TestGetContext_TagFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	cs, pool := connect(t, "alice")
+	org := seedNS(t, pool, "org", "org")
+	grant(t, pool, "alice", org, "reader")
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO facts (namespace_id, statement, subject, canonical_key, status, tags, created_by, valid_from)
+		VALUES
+		  ($1,'use mTLS','{}'::jsonb,'sec:tls','active','{security}','seed',now()),
+		  ($1,'tree-shake','{}'::jsonb,'fe:bundle','active','{frontend}','seed',now()),
+		  ($1,'via CI','{}'::jsonb,'base:ci','active','{authoritative:true}','seed',now())`, org); err != nil {
+		t.Fatal(err)
+	}
+
+	res := call(t, cs, "get_context", map[string]any{"tags": "security"})
+	if res.IsError {
+		t.Fatalf("get_context errored: %v", res.Content)
+	}
+	body := bodyText(t, res)
+	if !containsStr(body, "sec:tls") || !containsStr(body, "base:ci") {
+		t.Errorf("tags=security should include sec:tls + base:ci, got %s", body)
+	}
+	if containsStr(body, "fe:bundle") {
+		t.Errorf("tags=security must NOT include fe:bundle, got %s", body)
+	}
+}
+
 // TestStructuredContent_Populated guards the rendering fix: a successful tool
 // result must carry the parsed body in StructuredContent under a {"result": ...}
 // envelope (not just in text content). Regression test for the empty-{} bug.

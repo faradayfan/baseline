@@ -59,6 +59,7 @@ func (s *Server) getContext(w http.ResponseWriter, r *http.Request) {
 		Namespaces:      readable,
 		IncludeMemories: r.URL.Query().Get("include_memories") == "true",
 		Limit:           limit,
+		Tags:            parseCSV(r.URL.Query().Get("tags")),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "context resolution failed")
