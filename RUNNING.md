@@ -85,7 +85,7 @@ org's facts."_ It should return the seeded deploy-policy fact.
 >
 > ```text
 > /plugin marketplace add faradayfan/baseline
-> /plugin install baseline      # prompts for URL + principal, then wires everything
+> /plugin install baseline@baseline   # prompts for URL + principal, then wires everything
 > ```
 >
 > Context injection then runs in every project; memory capture is opt-in per repo

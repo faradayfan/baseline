@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "baseline",
-      "source": "./",
+      "source": "./plugin",
       "description": "Org-facts context injection, [remember: …] memory capture, and Baseline MCP tools. Parameterized per-user by Baseline URL + principal."
     }
   ]

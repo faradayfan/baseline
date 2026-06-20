@@ -21,7 +21,7 @@ It bundles three things:
 
 ```text
 /plugin marketplace add faradayfan/baseline        # or a git URL to your fork/host
-/plugin install baseline
+/plugin install baseline@baseline                  # plugin-name@marketplace-name
 ```
 
 On enable you're prompted once for:
