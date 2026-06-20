@@ -164,6 +164,47 @@ func TestGetContext_MapsToREST(t *testing.T) {
 	}
 }
 
+// TestStructuredContent_Populated guards the rendering fix: a successful tool
+// result must carry the parsed body in StructuredContent under a {"result": ...}
+// envelope (not just in text content). Regression test for the empty-{} bug.
+func TestStructuredContent_Populated(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	cs, pool := connect(t, "alice")
+	org := seedNS(t, pool, "org", "org")
+	grant(t, pool, "alice", org, "reader")
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO facts (namespace_id, statement, subject, canonical_key, status, tags, created_by, valid_from)
+		VALUES ($1,'deploys via CI','{}'::jsonb,'policy:ci','active','{}','seed',now())`, org); err != nil {
+		t.Fatal(err)
+	}
+
+	res := call(t, cs, "search_facts", map[string]any{})
+	if res.IsError {
+		t.Fatalf("search_facts errored: %v", res.Content)
+	}
+
+	// StructuredContent must be a non-nil object with a "result" key.
+	sc, ok := res.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("StructuredContent is %T, want map[string]any (the {result:...} envelope)", res.StructuredContent)
+	}
+	result, ok := sc["result"]
+	if !ok {
+		t.Fatalf("StructuredContent missing 'result' key: %v", sc)
+	}
+	// result is the parsed facts array; confirm it carried the seeded fact.
+	arr, ok := result.([]any)
+	if !ok || len(arr) == 0 {
+		t.Fatalf("result is not a non-empty array: %#v", result)
+	}
+	first, _ := arr[0].(map[string]any)
+	if first["canonical_key"] != "policy:ci" {
+		t.Errorf("structured result missing the seeded fact, got %v", first)
+	}
+}
+
 // TestListMyPromotions_ScopedToCaller asserts list_my_promotions returns only the
 // caller's own promotions (proposer=me resolves to the session principal).
 func TestListMyPromotions_ScopedToCaller(t *testing.T) {

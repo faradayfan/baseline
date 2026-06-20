@@ -71,14 +71,15 @@ func (b *Bridge) Server() *mcp.Server {
 	return s
 }
 
-// wrap adapts a typed-input bridge handler to the SDK's ToolHandlerFor with a
-// `struct{}` output type, so the SDK infers no output schema for the opaque REST
-// body — which we return as JSON text content instead (the body shapes vary per
-// endpoint and are passed through verbatim).
-func wrap[In any](fn func(context.Context, In) (*mcp.CallToolResult, error)) mcp.ToolHandlerFor[In, struct{}] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, struct{}, error) {
-		res, err := fn(ctx, in)
-		return res, struct{}{}, err
+// wrap adapts a typed-input bridge handler to the SDK's ToolHandlerFor with an
+// `any` output type. Using `any` (not a concrete struct) is deliberate: it tells
+// the SDK to infer NO output schema, so it skips output validation for the opaque
+// REST body whose shape varies per endpoint. The handler still returns the parsed
+// body as the output value, which the SDK places in StructuredContent — so the
+// result carries both human-readable text and a structured payload.
+func wrap[In any](fn func(context.Context, In) (*mcp.CallToolResult, any, error)) mcp.ToolHandlerFor[In, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+		return fn(ctx, in)
 	}
 }
 
@@ -119,7 +120,7 @@ type reviewPromotionIn struct {
 
 // --- tool handlers (each is a thin map onto one REST call) ---
 
-func (b *Bridge) getContext(ctx context.Context, in getContextIn) (*mcp.CallToolResult, error) {
+func (b *Bridge) getContext(ctx context.Context, in getContextIn) (*mcp.CallToolResult, any, error) {
 	q := url.Values{}
 	if in.ActorID != "" {
 		q.Set("actor_id", in.ActorID)
@@ -136,7 +137,7 @@ func (b *Bridge) getContext(ctx context.Context, in getContextIn) (*mcp.CallTool
 	return b.call(ctx, http.MethodGet, "/v1/context?"+q.Encode(), nil)
 }
 
-func (b *Bridge) searchFacts(ctx context.Context, in searchFactsIn) (*mcp.CallToolResult, error) {
+func (b *Bridge) searchFacts(ctx context.Context, in searchFactsIn) (*mcp.CallToolResult, any, error) {
 	q := url.Values{}
 	for k, v := range map[string]string{"q": in.Query, "namespace": in.Namespace, "status": in.Status, "tag": in.Tag} {
 		if v != "" {
@@ -149,7 +150,7 @@ func (b *Bridge) searchFacts(ctx context.Context, in searchFactsIn) (*mcp.CallTo
 	return b.call(ctx, http.MethodGet, "/v1/facts?"+q.Encode(), nil)
 }
 
-func (b *Bridge) proposeFact(ctx context.Context, in proposeFactIn) (*mcp.CallToolResult, error) {
+func (b *Bridge) proposeFact(ctx context.Context, in proposeFactIn) (*mcp.CallToolResult, any, error) {
 	body := map[string]any{
 		"target_namespace":     in.TargetNamespace,
 		"proposed_statement":   in.ProposedStatement,
@@ -159,7 +160,7 @@ func (b *Bridge) proposeFact(ctx context.Context, in proposeFactIn) (*mcp.CallTo
 	return b.call(ctx, http.MethodPost, "/v1/promotions", body)
 }
 
-func (b *Bridge) listMyPromotions(ctx context.Context, in listMyPromotionsIn) (*mcp.CallToolResult, error) {
+func (b *Bridge) listMyPromotions(ctx context.Context, in listMyPromotionsIn) (*mcp.CallToolResult, any, error) {
 	q := url.Values{"proposer": {"me"}}
 	if in.State != "" {
 		q.Set("state", in.State)
@@ -167,11 +168,11 @@ func (b *Bridge) listMyPromotions(ctx context.Context, in listMyPromotionsIn) (*
 	return b.call(ctx, http.MethodGet, "/v1/promotions?"+q.Encode(), nil)
 }
 
-func (b *Bridge) reviewPromotion(ctx context.Context, in reviewPromotionIn) (*mcp.CallToolResult, error) {
+func (b *Bridge) reviewPromotion(ctx context.Context, in reviewPromotionIn) (*mcp.CallToolResult, any, error) {
 	switch in.Action {
 	case "approve", "reject", "request-changes":
 	default:
-		return errorResult("action must be approve|reject|request-changes"), nil
+		return errorResult("action must be approve|reject|request-changes"), nil, nil
 	}
 	body := map[string]any{"comment": in.Comment}
 	if in.SuggestedStatement != "" {
@@ -181,15 +182,17 @@ func (b *Bridge) reviewPromotion(ctx context.Context, in reviewPromotionIn) (*mc
 }
 
 // call dispatches a synthetic request through the REST handler as the bridge's
-// principal and returns the response body verbatim as JSON text content. Non-2xx
-// responses become tool errors carrying the REST error envelope. The opaque body
-// is returned as text (not structured output) because shapes vary per endpoint.
-func (b *Bridge) call(ctx context.Context, method, path string, body any) (*mcp.CallToolResult, error) {
+// principal and returns the response BOTH as human-readable JSON text content and
+// as a structured output value (placed in StructuredContent by the SDK). The REST
+// body — whose shape varies per endpoint — is parsed and wrapped as
+// {"result": <body>} so consumers get a stable, structured envelope. Non-2xx
+// responses become tool errors carrying the REST error envelope.
+func (b *Bridge) call(ctx context.Context, method, path string, body any) (*mcp.CallToolResult, any, error) {
 	var reader *bytes.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
-			return errorResult("encode request: " + err.Error()), nil
+			return errorResult("encode request: " + err.Error()), nil, nil
 		}
 		reader = bytes.NewReader(raw)
 	} else {
@@ -207,11 +210,20 @@ func (b *Bridge) call(ctx context.Context, method, path string, body any) (*mcp.
 
 	respBody := rec.Body.String()
 	if rec.Code < 200 || rec.Code >= 300 {
-		return errorResult(fmt.Sprintf("baseline %s %s -> %d: %s", method, path, rec.Code, respBody)), nil
+		return errorResult(fmt.Sprintf("baseline %s %s -> %d: %s", method, path, rec.Code, respBody)), nil, nil
 	}
+
+	// Parse the body so it surfaces as structured content. If it isn't JSON for
+	// some reason, fall back to the raw string under the same envelope.
+	var parsed any
+	if err := json.Unmarshal([]byte(respBody), &parsed); err != nil {
+		parsed = respBody
+	}
+	out := map[string]any{"result": parsed}
+
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: respBody}},
-	}, nil
+	}, out, nil
 }
 
 func errorResult(msg string) *mcp.CallToolResult {
