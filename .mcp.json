@@ -2,7 +2,7 @@
   "mcpServers": {
     "baseline": {
       "type": "http",
-      "url": "http://<BASELINE_LB_IP>:8080/mcp",
+      "url": "http://localhost:8080/mcp",
       "headers": {
         "X-Baseline-Principal": "john"
       }
