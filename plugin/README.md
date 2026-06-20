@@ -162,6 +162,48 @@ Scripts read the plugin's install-time config (`CLAUDE_PLUGIN_OPTION_BACKEND_URL
 working unchanged. Every hook fails silent (exit 0) on any error and never blocks
 the session.
 
+### Surviving plugin updates (config durability)
+
+A plugin **update can clear** the install-time config (`pluginConfigs` in
+`settings.json`), which would silently turn the hooks off. Because the hooks fall
+back to the `BASELINE_*` env vars (which *do* survive updates), set them in your
+**user** `~/.claude/settings.json` as a durable backstop:
+
+```json
+{
+  "env": {
+    "BASELINE_CONTEXT_URL": "http://localhost:8080",
+    "BASELINE_PRINCIPAL": "you"
+  }
+}
+```
+
+With this, the inject/capture hooks keep working across updates even if
+`pluginConfigs` is wiped. (Caveat: the **MCP server** in `.mcp.json` uses
+`${user_config.*}` and can't read these env vars — restore `pluginConfigs` if the
+MCP tools go missing after an update.)
+
+## Updating the plugin (avoiding silent staleness)
+
+This plugin **omits `version` from `plugin.json` on purpose** — Claude Code then
+keys updates on the **git commit SHA**, so every pushed commit is a new version and
+`/plugin update` actually advances the installed copy.
+
+> ⚠️ If you *add* a `version` field, Claude Code pins to that string: pushing new
+> commits **has no effect** and `/plugin update` reports "already at the latest
+> version" — the installed hooks silently stay stale while the repo moves on. (This
+> bit us: the install was frozen at an old commit while every push appeared to
+> succeed.) Keep `version` out, or bump it on every shippable change.
+
+Dev/update loop:
+
+```text
+edit plugin/ → commit → push → /plugin update baseline@baseline → /reload-plugins
+```
+
+`/reload-plugins` switches the running hooks/MCP to the freshly-updated copy without
+restarting the session.
+
 ## Local development
 
 ```bash

@@ -1,7 +1,6 @@
 {
   "name": "baseline",
   "displayName": "Baseline — Org Facts & Memory",
-  "version": "0.1.0",
   "description": "Inject your org's governed facts (and personal memories) into every Claude Code session, capture new memories with a [remember: …] tag, and expose Baseline's MCP tools. Point it at your Baseline deployment and identity.",
   "author": { "name": "Baseline" },
   "homepage": "https://github.com/faradayfan/baseline",
