@@ -120,6 +120,38 @@ func TestProposeFact_MapsToREST(t *testing.T) {
 	}
 }
 
+// TestProposeFact_WithTags asserts the propose_fact tool carries tags through to
+// the created fact — facts can be authored fully (with their read-path labels)
+// via the governed MCP path, no out-of-band SQL.
+func TestProposeFact_WithTags(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	cs, pool := connect(t, "alice")
+	org := seedNS(t, pool, "org", "org")
+	grant(t, pool, "alice", org, "contributor")
+
+	res := call(t, cs, "propose_fact", map[string]any{
+		"target_namespace":   org.String(),
+		"proposed_statement": "use asdf for language versions",
+		"subject":            map[string]any{"type": "tooling.asdf"},
+		"tags":               []string{"tooling", "languages"},
+	})
+	if res.IsError {
+		t.Fatalf("propose_fact errored: %v", res.Content)
+	}
+
+	var tags []string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT tags FROM facts WHERE created_by='alice' AND canonical_key='tooling.asdf:global'`).Scan(&tags); err != nil {
+		t.Fatalf("fact lookup: %v", err)
+	}
+	want := map[string]bool{"tooling": true, "languages": true}
+	if len(tags) != 2 || !want[tags[0]] || !want[tags[1]] {
+		t.Errorf("proposed fact tags = %v, want [tooling languages]", tags)
+	}
+}
+
 // TestProposeFact_RBACReused asserts a reader (no propose right) is rejected by
 // the same RBAC the REST layer enforces — surfaced as a tool error.
 func TestProposeFact_RBACReused(t *testing.T) {

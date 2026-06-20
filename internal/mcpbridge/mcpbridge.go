@@ -83,7 +83,7 @@ func (b *Bridge) Server() *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "propose_fact",
-		Description: "Propose a memory/statement for promotion into a namespace. Maps to POST /promotions.",
+		Description: "Propose a memory/statement for promotion into a namespace. Optional `tags` (string array) label the fact for read-path filtering. Maps to POST /promotions.",
 	}, wrap(b.proposeFact))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -131,10 +131,11 @@ type searchFactsIn struct {
 }
 
 type proposeFactIn struct {
-	TargetNamespace   string         `json:"target_namespace"`
-	ProposedStatement string         `json:"proposed_statement"`
-	Subject           map[string]any `json:"subject"`
-	CandidateMemoryIDs []string      `json:"candidate_memory_ids,omitempty"`
+	TargetNamespace    string         `json:"target_namespace"`
+	ProposedStatement  string         `json:"proposed_statement"`
+	Subject            map[string]any `json:"subject"`
+	CandidateMemoryIDs []string       `json:"candidate_memory_ids,omitempty"`
+	Tags               []string       `json:"tags,omitempty"` // labels for read-path filtering
 }
 
 type listMyPromotionsIn struct {
@@ -189,6 +190,7 @@ func (b *Bridge) proposeFact(ctx context.Context, in proposeFactIn) (*mcp.CallTo
 		"proposed_statement":   in.ProposedStatement,
 		"subject":              in.Subject,
 		"candidate_memory_ids": in.CandidateMemoryIDs,
+		"tags":                 in.Tags,
 	}
 	return b.call(ctx, http.MethodPost, "/v1/promotions", body)
 }
