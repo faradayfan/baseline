@@ -10,7 +10,11 @@
 #   - BASELINE_CAPTURE is set to a truthy value (1/true/yes).
 # This keeps "[remember: …]" from silently writing memories in every project.
 #
-# Trigger: I emit `[remember: <text>]` in a reply when something is worth keeping.
+# Trigger: I emit `[remember: <text>]` in a reply when something is worth keeping,
+# optionally typed: `[remember:procedural: <text>]`. The cognitive TYPE (one of
+# semantic | procedural | episodic) is sent as metadata.type on the memory so it
+# can inform later treatment (e.g. which tier: it gets if promoted to a fact).
+# Explicit type wins; an untyped `[remember: ...]` defaults to type:semantic.
 # This hook scrapes those spans from the last assistant turn and POSTs each to
 #   <backend_url>/v1/memories  (principal = configured principal).
 # Mem0 then runs its own extraction; the memory later surfaces in /context.
@@ -90,9 +94,25 @@ except Exception:
 if not last_text:
     sys.exit(0)
 
-spans = [m.strip() for m in re.findall(r"\[remember:\s*(.+?)\]", last_text,
-                                       re.IGNORECASE | re.DOTALL)]
-spans = [s for s in spans if s]
+# Match `[remember: text]` or `[remember:TYPE: text]`. The optional TYPE is the
+# first colon-delimited token after `remember:` when it's one of the known types;
+# anything else (or no token) means untyped → default semantic.
+TYPES = {"semantic", "procedural", "episodic"}
+DEFAULT_TYPE = "semantic"
+
+spans = []
+for raw in re.findall(r"\[remember:\s*(.+?)\]", last_text, re.IGNORECASE | re.DOTALL):
+    raw = raw.strip()
+    if not raw:
+        continue
+    mtype = DEFAULT_TYPE
+    # Explicit type prefix: "procedural: actual text". Split once on the first ':'.
+    head, sep, rest = raw.partition(":")
+    if sep and head.strip().lower() in TYPES:
+        mtype = head.strip().lower()
+        raw = rest.strip()
+    if raw:
+        spans.append((mtype, raw))
 if not spans:
     sys.exit(0)
 
@@ -100,8 +120,8 @@ base = os.environ["BASELINE_URL"]
 principal = os.environ.get("BASELINE_PRINCIPAL_RESOLVED", "")
 token = os.environ.get("BASELINE_TOKEN", "")
 saved = []
-for text in spans:
-    body = json.dumps({"content": text}).encode()
+for mtype, text in spans:
+    body = json.dumps({"content": text, "metadata": {"type": mtype}}).encode()
     headers = {"Content-Type": "application/json",
                "X-Baseline-Principal": principal}
     if token:
@@ -111,7 +131,7 @@ for text in spans:
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             resp.read()
-        saved.append(text)
+        saved.append("%s:%s" % (mtype, text))
     except Exception:
         pass  # 501 standards-only, network, etc. — never block.
 

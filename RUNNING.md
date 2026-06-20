@@ -181,9 +181,18 @@ POC, and read-only means it can mutate nothing. This is a single-user inspector,
 through the governed MCP/REST path.
 
 > If memory adds return `"results": []`, check `kubectl logs` for the mem0-api pod.
-> A `expected 1536 dimensions, not 768` error means the pgvector collection was
-> created at the OpenAI size — drop it (`DROP TABLE memories;` in mem0-postgres)
-> and re-add; the patched image creates it at 768 to match nomic-embed-text.
+> A `expected 1536 dimensions, not 768` error means a pgvector table was created at
+> the OpenAI size. Mem0 keeps **two** vector tables — `memories` **and**
+> `mem0migrations` — and BOTH must be 768; a stale `mem0migrations` at 1536 fails
+> writes even after `memories` is fixed. Drop both and restart mem0-api so the
+> patched image recreates them at 768:
+> `DROP TABLE IF EXISTS memories, mem0migrations CASCADE;` (as the `postgres`
+> superuser in mem0-postgres), then
+> `kubectl -n baseline delete pod -l app.kubernetes.io/name=mem0-api`.
+> (Note this clears stored memories — re-add them.) Separately, the local
+> `qwen2.5:3b` extractor is conservative: a `"results": []` with no dim error in the
+> logs just means Mem0's LLM judged the text not memory-worthy — phrase captures as
+> clear, declarative facts/preferences.
 
 ### Memory capture (harness → Mem0, via Baseline)
 

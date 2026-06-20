@@ -60,25 +60,36 @@ paid once per session.
 
 ---
 
-## Phase 2 — `type:` axis + typed write path *(NEXT)*
+## Phase 2 — typed capture *(SHIPPED — minimal slice)*
 
-Phase 1 used only `tier:` (delivery). `type:` earns its keep here, on the **write**
-side. Today capture is single-channel: `[remember: …]` → Mem0, undifferentiated.
+Phase 1 used only `tier:` (delivery). Phase 2 adds the cognitive **type** on the
+**write** side. Capture was single-channel (`[remember: …]` → Mem0, undifferentiated).
 
-- **Typed capture:** `[remember:procedural: …]` / `[remember:semantic: …]` (or infer
-  the type). The type tag routes the write:
-  - `type:semantic` durable facts → propose into Baseline (governed) *or* Mem0.
-  - `type:procedural` how-to/guardrails → propose as facts, likely `tier:always`.
-  - `type:episodic` → a session/event log (Phase 3), not the fact store.
-- **The link to Phase 1:** a captured memory's `type:` should suggest its `tier:` on
-  the way back out. Tag it right on the way in; route it right on the way out.
-- **Open decision (deferred from Phase 1):** keep `type:`/`tier:` as **tag
-  conventions**, or promote to first-class **`memory_type` / `delivery` columns** on
-  `facts`. Tag convention = zero schema change, flexible; column = queryable,
-  validated, enables type-specific `/context` behavior. Decide when type-specific
-  behavior actually needs enforcing.
-- Touch points: `Stop` hook (`capture-memory.sh`) — parse the type; the mem0 adapter
-  / `propose_fact` routing; `plugin/README.md`.
+**Shipped:**
+
+- **Typed capture:** `[remember:TYPE: …]` where TYPE ∈ `semantic | procedural |
+  episodic`. Explicit type wins; untyped `[remember: …]` defaults to `semantic`; an
+  unrecognized prefix is treated as untyped (the prefix stays in the text).
+- **Routing decision (settled): all → Mem0 with `metadata.type`.** Everything goes to
+  `/v1/memories` carrying `{type}`; the type is recorded, not used to auto-create
+  facts. This avoids the separation-of-duties wall — promotion to a governed fact
+  stays a deliberate, reviewed human step (the proposer can't self-approve). The
+  backend already forwards `metadata` end-to-end (mem0 adapter → Mem0); **no backend
+  change was needed.** Verified: a typed capture lands in Mem0 with `metadata.type`.
+- Touch point: `Stop` hook (`capture-memory.sh`); docs in `plugin/README.md`.
+
+**Deferred within the type story (Phase 2b, when the governance dependency is ready):**
+
+- **Type → `tier:` on promotion:** a captured memory's `type:` should suggest its
+  `tier:` when promoted (procedural→often `tier:always`, semantic→`tier:relevant`).
+  Needs the promotion path, which needs the solo-approver/auto-promote story (Phase 5).
+- **Type-routed destinations:** sending some types to `propose_fact` instead of Mem0
+  — deferred because the Stop hook would have to construct a `subject`/namespace and
+  the proposals pile up un-approvable (separation of duties).
+- **Open decision (still deferred):** keep `type:`/`tier:` as **tag conventions**, or
+  promote to first-class **`memory_type`/`delivery` columns** on `facts`. Tag
+  convention = zero schema change; column = queryable/validated. Decide when
+  type-specific behavior actually needs enforcing.
 
 ## Phase 3 — Episodic capture (the thin layer today)
 

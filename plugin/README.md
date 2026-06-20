@@ -10,8 +10,9 @@ It bundles three things:
    the **always-on** facts once per session and the **relevant** facts per turn,
    instead of dumping every fact into every prompt. See *Tiered injection* below.
 2. **Memory capture** (`Stop` hook) — when a reply contains a `[remember: …]`
-   tag, posts that text to Baseline's out-of-band `/v1/memories` (→ Mem0).
-   **Opt-in** (see below) so it does not fire in unrelated repos.
+   tag (optionally typed, e.g. `[remember:procedural: …]`), posts that text to
+   Baseline's out-of-band `/v1/memories` (→ Mem0) with its cognitive type as
+   metadata. **Opt-in** (see below) so it does not fire in unrelated repos.
 3. **MCP tools** (HTTP MCP server) — exposes `get_context`, `search_facts`,
    `propose_fact`, `list_my_promotions`, `review_promotion` against
    `<backend_url>/mcp`, authenticated per-user with `X-Baseline-Principal`.
@@ -134,6 +135,24 @@ export BASELINE_CAPTURE=1         # env var for the session/shell
 With neither present, the `Stop` hook is a no-op. With either, a reply containing
 `[remember: John prefers pnpm]` posts that memory to Baseline; Mem0 runs its own
 extraction and it later surfaces in `/context` as `source: memory`.
+
+### Typing a captured memory
+
+A capture can carry a **cognitive type** — `semantic` (what's true), `procedural`
+(how to do things), or `episodic` (what happened) — written into the marker:
+
+```text
+[remember:procedural: deploy services with `helm upgrade`, not kubectl apply]
+[remember:episodic: the reaper refactor on 2026-06-20 broke the context resolver]
+[remember: John prefers pnpm over npm]        # untyped → defaults to semantic
+```
+
+The type is sent as `metadata.type` on the memory (Mem0 preserves it). Explicit
+type wins; an untyped `[remember: …]` defaults to `semantic`; an unrecognized
+prefix (e.g. `[remember:foo: …]`) is treated as untyped and the `foo:` stays part
+of the text. The type informs later treatment — e.g. which `tier:` a memory would
+get if it's promoted to a governed fact. (Promotion to a fact remains a deliberate,
+reviewed step; capture only records the memory and its type.)
 
 ## Config resolution
 
