@@ -102,3 +102,7 @@ production auth.
 
 Go 1.26 · stdlib `net/http` + chi · pgx/v5 · Postgres + pgvector · goose
 migrations · the official MCP Go SDK · Helm · React/Vite for the dashboard.
+
+## License
+
+[MIT](LICENSE).
