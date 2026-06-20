@@ -64,6 +64,61 @@ func Get(ctx context.Context, q Querier, id uuid.UUID) (Fact, error) {
 	return scanOne(q.QueryRow(ctx, selectCols+` WHERE id = $1`, id))
 }
 
+// ListFilter narrows a facts query (§9 GET /facts).
+type ListFilter struct {
+	Namespaces   []uuid.UUID // restrict to these (caller's entitlements)
+	Status       *Status
+	CanonicalKey *string
+	Tag          *string
+	Text         *string // q: case-insensitive substring over statement (pre-semantic)
+	Limit        int
+}
+
+// List returns facts matching the filter, newest first. The Namespaces filter is
+// how the caller enforces entitlement scoping — pass the readable set.
+func List(ctx context.Context, q Querier, f ListFilter) ([]Fact, error) {
+	sql := selectCols + ` WHERE 1=1`
+	var args []any
+	add := func(clause string, val any) {
+		args = append(args, val)
+		sql += fmt.Sprintf(clause, len(args))
+	}
+	if f.Namespaces != nil {
+		add(" AND namespace_id = ANY($%d)", f.Namespaces)
+	}
+	if f.Status != nil {
+		add(" AND status = $%d", *f.Status)
+	}
+	if f.CanonicalKey != nil {
+		add(" AND canonical_key = $%d", *f.CanonicalKey)
+	}
+	if f.Tag != nil {
+		add(" AND $%d = ANY(tags)", *f.Tag)
+	}
+	if f.Text != nil {
+		add(" AND statement ILIKE '%%' || $%d || '%%'", *f.Text)
+	}
+	sql += " ORDER BY created_at DESC"
+	if f.Limit > 0 {
+		add(" LIMIT $%d", f.Limit)
+	}
+
+	rows, err := q.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("facts: list: %w", err)
+	}
+	defer rows.Close()
+	var out []Fact
+	for rows.Next() {
+		f, err := scanRowsFact(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // FindActiveByKey returns the single active fact in a namespace with the given
 // canonical key, or ErrNotFound. Used for conflict detection at propose time
 // and precedence resolution. The partial unique index guarantees at most one.
@@ -176,7 +231,20 @@ const selectCols = `
 	       created_at, updated_at
 	FROM facts`
 
+// scannableFact is satisfied by both pgx.Row and pgx.Rows.
+type scannableFact interface{ Scan(dest ...any) error }
+
 func scanOne(row pgx.Row) (Fact, error) {
+	f, err := scanFact(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Fact{}, ErrNotFound
+	}
+	return f, err
+}
+
+func scanRowsFact(rows pgx.Rows) (Fact, error) { return scanFact(rows) }
+
+func scanFact(row scannableFact) (Fact, error) {
 	var (
 		f                     Fact
 		subjectJSON, provJSON []byte
@@ -187,11 +255,8 @@ func scanOne(row pgx.Row) (Fact, error) {
 		&f.SourceMemoryIDs, &provJSON, &f.ValidFrom, &f.ValidTo, &f.SupersedesID,
 		&f.SupersededByID, &f.Tags, &metaJSON, &f.CreatedBy, &f.ApprovedBy, &f.Version,
 		&f.CreatedAt, &f.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Fact{}, ErrNotFound
-	}
 	if err != nil {
-		return Fact{}, fmt.Errorf("facts: scan: %w", err)
+		return Fact{}, err
 	}
 	_ = json.Unmarshal(subjectJSON, &f.Subject)
 	_ = json.Unmarshal(provJSON, &f.Provenance)

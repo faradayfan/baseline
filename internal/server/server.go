@@ -93,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 		})
 
 		r.Route("/facts", func(r chi.Router) {
+			r.Get("/", s.listFacts)
 			r.Get("/{id}", s.getFact)
 			r.Get("/{id}/history", s.getFactHistory)
 			r.Patch("/{id}", s.revokeFact)

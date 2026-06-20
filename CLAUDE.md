@@ -16,8 +16,13 @@ attribution, determinism, version isolation, invalid-policy rejection). **M3 is 
 `MemorySource` port (`internal/memory`) with `null` (standards-only) and `mem0` adapters, the
 embedder client (`internal/embed`, with the dims guard), and the `/context` resolver
 (`internal/contextsvc`) + `GET /v1/context` handler — §14 3,4,9 and the §11.2 standards-only
-coupling guarantee covered. Next up: M4 (MCP bridge), M5 (reaper + OTEL), M6 (conformance). The plan
-lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
+coupling guarantee covered. **M4 is also complete**: a `GET /facts` list/search handler plus the MCP
+bridge (`internal/mcpbridge`) exposing the five §9 tools (`get_context`, `search_facts`,
+`propose_fact`, `list_my_promotions`, `review_promotion`) as a *thin* bridge — each tool dispatches a
+synthetic request through the same `server.Handler()` in-process, so authn/RBAC/audit are reused
+verbatim. Uses the official MCP Go SDK; `BASELINE_MCP_STDIO=true` serves it over stdio. Next up: M5
+(reaper + OTEL), M6 (conformance + OpenAPI). The plan lives at
+`/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
 v1 decisions decided). Read it before implementing anything; the decisions in §18 are settled — do

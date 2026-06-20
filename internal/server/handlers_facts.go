@@ -5,9 +5,71 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/google/uuid"
+
 	"github.com/faradayfan/baseline/internal/facts"
 	"github.com/faradayfan/baseline/internal/rbac"
 )
+
+// listFacts handles GET /v1/facts (§9). Results are scoped to the caller's
+// readable namespaces — a fact outside entitlements is never returned. Filters:
+// namespace, status, canonical_key, tag, q (substring), limit.
+func (s *Server) listFacts(w http.ResponseWriter, r *http.Request) {
+	ent, ok := EntitlementsFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "missing entitlements")
+		return
+	}
+	q := r.URL.Query()
+
+	// Start from the readable set; an optional namespace filter intersects it.
+	scope := ent.ReadableNamespaces()
+	if v := q.Get("namespace"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid namespace")
+			return
+		}
+		if !ent.CanRead(id) {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		scope = []uuid.UUID{id}
+	}
+
+	filter := facts.ListFilter{Namespaces: scope}
+	if v := q.Get("status"); v != "" {
+		st := facts.Status(v)
+		filter.Status = &st
+	}
+	if v := q.Get("canonical_key"); v != "" {
+		filter.CanonicalKey = &v
+	}
+	if v := q.Get("tag"); v != "" {
+		filter.Tag = &v
+	}
+	if v := q.Get("q"); v != "" {
+		filter.Text = &v
+	}
+	if v := q.Get("limit"); v != "" {
+		filter.Limit, _ = strconv.Atoi(v)
+	}
+
+	// A caller with no readable namespaces gets an empty list, never all facts.
+	if filter.Namespaces == nil {
+		filter.Namespaces = []uuid.UUID{}
+	}
+
+	out, err := facts.List(r.Context(), s.pool, filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list failed")
+		return
+	}
+	if out == nil {
+		out = []facts.Fact{}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
 
 func (s *Server) getFact(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(w, r)

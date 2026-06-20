@@ -11,6 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/faradayfan/baseline/internal/mcpbridge"
 	"github.com/faradayfan/baseline/internal/memory"
 	"github.com/faradayfan/baseline/internal/memory/mem0"
 	"github.com/faradayfan/baseline/internal/memory/null"
@@ -46,6 +49,20 @@ func main() {
 	// NOTE: HeaderAuthenticator is for local/dev use only. Production must wire
 	// an OIDC/mTLS authenticator here (§13) before exposing the service.
 	app := server.NewWithMemory(st.Pool, server.HeaderAuthenticator{}, memorySource(cfg))
+
+	// MCP-over-stdio mode (M4): serve the thin tool bridge instead of HTTP. The
+	// principal comes from BASELINE_MCP_PRINCIPAL (dev seam; production resolves
+	// it from the transport's auth before constructing the bridge).
+	if os.Getenv("BASELINE_MCP_STDIO") == "true" {
+		principal := os.Getenv("BASELINE_MCP_PRINCIPAL")
+		bridge := mcpbridge.New(app.Handler(), principal)
+		log.Info("serving MCP over stdio", "principal", principal)
+		if err := bridge.Server().Run(ctx, &mcp.StdioTransport{}); err != nil {
+			log.Error("mcp serve", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,

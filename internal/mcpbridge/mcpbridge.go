@@ -1,0 +1,222 @@
+// Package mcpbridge exposes Baseline's §9 MCP tools as a thin bridge over the
+// REST API. Each tool builds a synthetic HTTP request and dispatches it through
+// the SAME http.Handler the network server uses, so authn, RBAC, validation, and
+// audit are reused verbatim — there is no business logic here, and the §14
+// invariants hold automatically (§9 "thin bridge over the above").
+//
+// Identity: a bridge is constructed per session with the caller's principal,
+// which is injected as X-Baseline-Principal on every synthetic request (matching
+// the dev HeaderAuthenticator; production resolves the principal from the MCP
+// transport's auth before constructing the bridge).
+package mcpbridge
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// Bridge dispatches MCP tool calls into an http.Handler as a fixed principal.
+type Bridge struct {
+	handler   http.Handler
+	principal string
+}
+
+// New returns a bridge that calls handler as principal. handler is typically
+// server.Handler().
+func New(handler http.Handler, principal string) *Bridge {
+	return &Bridge{handler: handler, principal: principal}
+}
+
+// Server builds an *mcp.Server with the five §9 tools registered. Serve it over
+// any MCP transport (stdio, streamable HTTP).
+func (b *Bridge) Server() *mcp.Server {
+	s := mcp.NewServer(&mcp.Implementation{
+		Name:    "baseline",
+		Title:   "Baseline Facts Management",
+		Version: "0.1.0",
+	}, nil)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_context",
+		Description: "Return the precedence-resolved facts (and optionally personal memories) the caller is entitled to. Maps to GET /context.",
+	}, wrap(b.getContext))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "search_facts",
+		Description: "Search active facts the caller can read. Maps to GET /facts?q=.",
+	}, wrap(b.searchFacts))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "propose_fact",
+		Description: "Propose a memory/statement for promotion into a namespace. Maps to POST /promotions.",
+	}, wrap(b.proposeFact))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_my_promotions",
+		Description: "List the caller's own promotion requests. Maps to GET /promotions?proposer=me.",
+	}, wrap(b.listMyPromotions))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "review_promotion",
+		Description: "Approve, reject, or request changes on a promotion. Maps to the promotion review actions.",
+	}, wrap(b.reviewPromotion))
+
+	return s
+}
+
+// wrap adapts a typed-input bridge handler to the SDK's ToolHandlerFor with a
+// `struct{}` output type, so the SDK infers no output schema for the opaque REST
+// body — which we return as JSON text content instead (the body shapes vary per
+// endpoint and are passed through verbatim).
+func wrap[In any](fn func(context.Context, In) (*mcp.CallToolResult, error)) mcp.ToolHandlerFor[In, struct{}] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, struct{}, error) {
+		res, err := fn(ctx, in)
+		return res, struct{}{}, err
+	}
+}
+
+// --- tool input/output types ---
+
+type getContextIn struct {
+	ActorID         string `json:"actor_id,omitempty"`
+	Namespaces      string `json:"namespaces,omitempty"` // comma-separated ids
+	IncludeMemories bool   `json:"include_memories,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+}
+
+type searchFactsIn struct {
+	Query     string `json:"q,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Tag       string `json:"tag,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+type proposeFactIn struct {
+	TargetNamespace   string         `json:"target_namespace"`
+	ProposedStatement string         `json:"proposed_statement"`
+	Subject           map[string]any `json:"subject"`
+	CandidateMemoryIDs []string      `json:"candidate_memory_ids,omitempty"`
+}
+
+type listMyPromotionsIn struct {
+	State string `json:"state,omitempty"`
+}
+
+type reviewPromotionIn struct {
+	PromotionID        string `json:"promotion_id"`
+	Action             string `json:"action"` // approve | reject | request-changes
+	Comment            string `json:"comment,omitempty"`
+	SuggestedStatement string `json:"suggested_statement,omitempty"`
+}
+
+// --- tool handlers (each is a thin map onto one REST call) ---
+
+func (b *Bridge) getContext(ctx context.Context, in getContextIn) (*mcp.CallToolResult, error) {
+	q := url.Values{}
+	if in.ActorID != "" {
+		q.Set("actor_id", in.ActorID)
+	}
+	if in.Namespaces != "" {
+		q.Set("namespaces", in.Namespaces)
+	}
+	if in.IncludeMemories {
+		q.Set("include_memories", "true")
+	}
+	if in.Limit > 0 {
+		q.Set("limit", fmt.Sprint(in.Limit))
+	}
+	return b.call(ctx, http.MethodGet, "/v1/context?"+q.Encode(), nil)
+}
+
+func (b *Bridge) searchFacts(ctx context.Context, in searchFactsIn) (*mcp.CallToolResult, error) {
+	q := url.Values{}
+	for k, v := range map[string]string{"q": in.Query, "namespace": in.Namespace, "status": in.Status, "tag": in.Tag} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	if in.Limit > 0 {
+		q.Set("limit", fmt.Sprint(in.Limit))
+	}
+	return b.call(ctx, http.MethodGet, "/v1/facts?"+q.Encode(), nil)
+}
+
+func (b *Bridge) proposeFact(ctx context.Context, in proposeFactIn) (*mcp.CallToolResult, error) {
+	body := map[string]any{
+		"target_namespace":     in.TargetNamespace,
+		"proposed_statement":   in.ProposedStatement,
+		"subject":              in.Subject,
+		"candidate_memory_ids": in.CandidateMemoryIDs,
+	}
+	return b.call(ctx, http.MethodPost, "/v1/promotions", body)
+}
+
+func (b *Bridge) listMyPromotions(ctx context.Context, in listMyPromotionsIn) (*mcp.CallToolResult, error) {
+	q := url.Values{"proposer": {"me"}}
+	if in.State != "" {
+		q.Set("state", in.State)
+	}
+	return b.call(ctx, http.MethodGet, "/v1/promotions?"+q.Encode(), nil)
+}
+
+func (b *Bridge) reviewPromotion(ctx context.Context, in reviewPromotionIn) (*mcp.CallToolResult, error) {
+	switch in.Action {
+	case "approve", "reject", "request-changes":
+	default:
+		return errorResult("action must be approve|reject|request-changes"), nil
+	}
+	body := map[string]any{"comment": in.Comment}
+	if in.SuggestedStatement != "" {
+		body["suggested_statement"] = in.SuggestedStatement
+	}
+	return b.call(ctx, http.MethodPost, "/v1/promotions/"+url.PathEscape(in.PromotionID)+"/"+in.Action, body)
+}
+
+// call dispatches a synthetic request through the REST handler as the bridge's
+// principal and returns the response body verbatim as JSON text content. Non-2xx
+// responses become tool errors carrying the REST error envelope. The opaque body
+// is returned as text (not structured output) because shapes vary per endpoint.
+func (b *Bridge) call(ctx context.Context, method, path string, body any) (*mcp.CallToolResult, error) {
+	var reader *bytes.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return errorResult("encode request: " + err.Error()), nil
+		}
+		reader = bytes.NewReader(raw)
+	} else {
+		reader = bytes.NewReader(nil)
+	}
+
+	req := httptest.NewRequest(method, path, reader).WithContext(ctx)
+	req.Header.Set("X-Baseline-Principal", b.principal)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	rec := httptest.NewRecorder()
+	b.handler.ServeHTTP(rec, req)
+
+	respBody := rec.Body.String()
+	if rec.Code < 200 || rec.Code >= 300 {
+		return errorResult(fmt.Sprintf("baseline %s %s -> %d: %s", method, path, rec.Code, respBody)), nil
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: respBody}},
+	}, nil
+}
+
+func errorResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
+	}
+}
