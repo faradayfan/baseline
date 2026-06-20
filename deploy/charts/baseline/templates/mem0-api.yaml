@@ -1,0 +1,132 @@
+{{- if .Values.mem0.enabled }}
+{{- $name := printf "%s-mem0-api" .Release.Name }}
+{{- $pgHost := printf "%s-mem0-postgres" .Release.Name }}
+{{- $neoHost := printf "%s-neo4j" .Release.Name }}
+{{- $ollamaURL := printf "http://%s-ollama:11434" .Release.Name }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  ADMIN_API_KEY: {{ .Values.mem0.apiKey | quote }}
+  JWT_SECRET: {{ .Values.mem0.jwtSecret | quote }}
+  {{- if .Values.mem0.openaiApiKey }}
+  OPENAI_API_KEY: {{ .Values.mem0.openaiApiKey | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mem0-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mem0-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mem0-api
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "baseline.labels" . | nindent 8 }}
+        app.kubernetes.io/name: mem0-api
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mem0-api
+    spec:
+      # Gate startup on Postgres, Neo4j, and Ollama being reachable.
+      initContainers:
+        - name: wait-deps
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ $pgHost }} 5432; do echo "wait pg"; sleep 2; done
+              {{- if .Values.mem0.neo4j.enabled }}
+              until nc -z {{ $neoHost }} 7687; do echo "wait neo4j"; sleep 2; done
+              {{- end }}
+              {{- if .Values.mem0.ollama.enabled }}
+              until nc -z {{ .Release.Name }}-ollama 11434; do echo "wait ollama"; sleep 2; done
+              {{- end }}
+      containers:
+        - name: mem0-api
+          image: {{ .Values.mem0.api.image }}
+          # Always pull: this is a mutable custom tag (:ollama) we iterate on; with
+          # IfNotPresent the node serves a stale cached layer on same-tag rebuilds.
+          imagePullPolicy: {{ .Values.mem0.api.pullPolicy | default "Always" }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            {{- if .Values.mem0.ollama.enabled }}
+            # --- self-hosted models via local Ollama ---
+            - name: OLLAMA_BASE_URL
+              value: {{ $ollamaURL | quote }}
+            {{- end }}
+            # Mem0 keeps a local SQLite history DB; default /app/history isn't
+            # writable. Point it at the emptyDir mounted below.
+            - name: HISTORY_DB_PATH
+              value: "/data/history.db"
+            # --- connection targets ---
+            - name: POSTGRES_HOST
+              value: {{ $pgHost | quote }}
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: {{ .Values.mem0.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.mem0.postgres.password | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.mem0.postgres.database | quote }}
+            {{- if .Values.mem0.neo4j.enabled }}
+            - name: NEO4J_URI
+              value: {{ printf "bolt://%s:7687" $neoHost | quote }}
+            - name: NEO4J_USERNAME
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              value: {{ .Values.mem0.neo4j.password | quote }}
+            {{- end }}
+            # --- extra config (model names, provider switches, dims, auth flags) ---
+            # These env names are confirmed against the live /openapi.json + image
+            # docs during the Step-2 investigation; set them in values.mem0.api.env.
+            {{- range $k, $v := .Values.mem0.api.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ $name }}
+          resources:
+            {{- toYaml .Values.mem0.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: history
+              mountPath: /data
+      volumes:
+        - name: history
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mem0-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: mem0-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

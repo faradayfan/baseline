@@ -61,6 +61,16 @@ PG_TAG   ?= 16-pgvector
 pi-pg-image: ## Build + push the custom Bitnami+pgvector Postgres image (run once / on PG bumps)
 	docker buildx build --platform linux/arm64 -t $(PG_IMAGE):$(PG_TAG) --push deploy/postgres
 
+MEM0_IMAGE := $(PI_REGISTRY)/baseline-mem0-api
+
+.PHONY: pi-mem0-image
+pi-mem0-image: ## Build + push the mem0-api image (OpenAI default; adds the DB/graph drivers the stock image lacks)
+	docker buildx build --platform linux/arm64 -t $(MEM0_IMAGE):openai --push deploy/mem0-api
+
+.PHONY: pi-mem0-image-ollama
+pi-mem0-image-ollama: ## Build + push the Ollama-patched variant (self-hosted; needs a GPU node to be usable)
+	docker buildx build --platform linux/arm64 --build-arg PATCH_OLLAMA=1 -t $(MEM0_IMAGE):ollama --push deploy/mem0-api
+
 .PHONY: pi-image
 pi-image: ## Build the linux/arm64 image for the Pi registry (tag = git SHA)
 	docker buildx build --platform linux/arm64 -t $(IMAGE):$(PI_TAG) --load .

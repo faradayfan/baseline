@@ -131,7 +131,7 @@ func main() {
 func memorySource(cfg platform.Config) memory.Source {
 	switch cfg.MemorySource {
 	case platform.MemoryMem0:
-		return mem0.New(cfg.Mem0URL)
+		return mem0.New(cfg.Mem0URL, cfg.Mem0APIKey)
 	case platform.MemoryNone:
 		return null.New()
 	default:

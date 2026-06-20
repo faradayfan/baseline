@@ -1,0 +1,115 @@
+{{- if and .Values.mem0.enabled .Values.mem0.neo4j.enabled }}
+{{- $name := printf "%s-neo4j" .Release.Name }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: neo4j
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.mem0.neo4j.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mem0.neo4j.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: neo4j
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: neo4j
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: neo4j
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "baseline.labels" . | nindent 8 }}
+        app.kubernetes.io/name: neo4j
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: neo4j
+    spec:
+      {{- with .Values.mem0.neo4j.nodeSelector | default .Values.mem0.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Run as the neo4j uid (7474) with a matching fsGroup so the entrypoint
+      # never needs the root-only chown of /data — which NFS root-squash rejects
+      # ("Operation not permitted"), same failure mode as Postgres.
+      securityContext:
+        runAsUser: 7474
+        runAsGroup: 7474
+        fsGroup: 7474
+      containers:
+        - name: neo4j
+          image: {{ .Values.mem0.neo4j.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 7474
+            - name: bolt
+              containerPort: 7687
+          env:
+            # NEO4J_AUTH=neo4j/<password> sets the initial password.
+            - name: NEO4J_AUTH
+              value: {{ printf "neo4j/%s" .Values.mem0.neo4j.password | quote }}
+            # Keep the JVM small for the Pi.
+            - name: NEO4J_server_memory_heap_max__size
+              value: {{ .Values.mem0.neo4j.heap | quote }}
+            - name: NEO4J_server_memory_pagecache_size
+              value: {{ .Values.mem0.neo4j.pagecache | quote }}
+          readinessProbe:
+            tcpSocket:
+              port: bolt
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: bolt
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.mem0.neo4j.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: neo4j
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 7474
+      targetPort: http
+    - name: bolt
+      port: 7687
+      targetPort: bolt
+  selector:
+    app.kubernetes.io/name: neo4j
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

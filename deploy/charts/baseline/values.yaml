@@ -92,11 +92,77 @@ reaper:
     requests: { cpu: 25m, memory: 32Mi }
     limits: { cpu: 200m, memory: 128Mi }
 
-# Mem0 memory backend — disabled in Phase 1 (facts-only). Phase 2 enables this
-# and points MEM0_URL at the in-cluster Mem0 Service.
+# Mem0 memory backend (Phase 2). Disabled by default so Phase-1 deploys stay
+# facts-only. When enabled, the chart deploys Ollama (LLM + embedder, no vendor
+# keys), Mem0's pgvector Postgres, Neo4j, and the Mem0 API server; Baseline's
+# MEMORY_SOURCE is set to mem0 and MEM0_URL points at the in-cluster Service.
 mem0:
   enabled: false
-  url: ""
+
+  # The Mem0 admin API key Baseline authenticates with, and Mem0's JWT secret.
+  # Overlays/secrets supply real values; these are dev placeholders.
+  apiKey: "dev-mem0-admin-key"
+  jwtSecret: "dev-jwt-secret-change-me"
+
+  # OpenAI key for Mem0's LLM + embedder. Self-hosted Ollama was tried first but
+  # is too slow/weak on Pi CPU (1b/3b models produced invalid JSON, ~76s/call),
+  # so Mem0 uses OpenAI (the stock image's default). Supplied via secrets.
+  openaiApiKey: ""
+
+  # Pin heavy workloads to a roomy node (only Neo4j now that Ollama is off).
+  nodeSelector: {}
+
+  api:
+    # Stock image: defaults to OpenAI (gpt-4o LLM + text-embedding-3-small),
+    # reading OPENAI_API_KEY. No custom image needed on the OpenAI path.
+    image: mem0/mem0-api-server:latest
+    pullPolicy: IfNotPresent
+    env: {}
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 1Gi }
+
+  # Local Ollama for fully self-hosted models. DISABLED — too slow/weak on Pi CPU
+  # for Mem0's JSON extraction; we use OpenAI instead. Kept for future GPU nodes.
+  ollama:
+    enabled: false
+    image: ollama/ollama:latest
+    llmModel: "qwen2.5:3b"
+    embedModel: "nomic-embed-text"
+    persistence:
+      storageClass: ""
+      size: 10Gi
+    resources:
+      requests: { cpu: 250m, memory: 2Gi }
+      limits: { cpu: "3", memory: 4Gi }
+
+  postgres:
+    # Reuse the custom Bitnami+pgvector image (overlays set the registry path).
+    image: pgvector/pgvector:pg16
+    user: mem0
+    password: mem0
+    database: mem0
+    postgresPassword: postgres
+    persistence:
+      storageClass: ""
+      size: 2Gi
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+  neo4j:
+    enabled: true
+    image: neo4j:5
+    password: mem0graph
+    heap: "512m"
+    pagecache: "256m"
+    nodeSelector: {}
+    persistence:
+      storageClass: ""
+      size: 5Gi
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { cpu: "1", memory: 1536Mi }
 
 secrets:
   existingSecret: ""      # prod: name of a pre-created Secret with DATABASE_URL

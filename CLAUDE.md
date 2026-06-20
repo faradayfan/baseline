@@ -13,11 +13,19 @@ live server — the build is "on baseline." Packages: `platform` (config/log/OTE
 `test/conformance`. The one entrypoint `cmd/baseline` runs HTTP by default, the reaper under
 `BASELINE_REAP=true`, and the MCP bridge under `BASELINE_MCP_STDIO=true`.
 
-What remains is **deferred-by-plan**, not unfinished: Helm packaging (`deploy/`), CI wiring, an OTEL
-exporter (instruments exist; production points `OTEL_*` at the collector), real OIDC/mTLS
-authenticators (the `Authenticator` seam exists; `HeaderAuthenticator` is dev-only), and semantic
-(embedding-ranked) `q` search (`/facts?q=` is substring for now). The plan lives at
-`/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
+**M7-POC (remote deployment) is also done** and running on a home Raspberry-Pi k3s cluster: a Helm
+chart (`deploy/charts/baseline`, Bitnami+pgvector custom image, MetalLB `<BASELINE_LB_IP>`), MCP-over-HTTP
+at `/mcp` (per-request `X-Baseline-Principal`; OIDC still deferred), and **Mem0 wired** — Baseline
+reads personal memories from an in-cluster Mem0, and `/context?include_memories=true` returns the
+fact/memory merge (facts ranked above memories, `source`-tagged). Mem0 itself runs on the **OpenAI
+API** for its LLM+embedder (self-hosted Ollama was too slow/weak on Pi CPUs). The mem0 adapter targets
+the **OSS** contract (unprefixed `/memories`, `/search`; `{results:[…]}` envelope; optional bearer).
+See [RUNNING.md](RUNNING.md).
+
+What remains **deferred-by-plan**, not unfinished: CI wiring, an OTEL exporter (instruments exist;
+production points `OTEL_*` at the collector), real OIDC/mTLS authenticators (the `Authenticator` seam
+exists; `HeaderAuthenticator` is dev-only), and semantic (embedding-ranked) `q` search (`/facts?q=`
+is substring for now). The plan lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
 v1 decisions decided). Read it before implementing anything; the decisions in §18 are settled — do

@@ -1,0 +1,117 @@
+{{- if .Values.mem0.enabled }}
+{{- $name := printf "%s-mem0-postgres" .Release.Name }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mem0-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.mem0.postgres.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mem0.postgres.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mem0-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mem0-postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mem0-postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "baseline.labels" . | nindent 8 }}
+        app.kubernetes.io/name: mem0-postgres
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mem0-postgres
+    spec:
+      # Same custom Bitnami+pgvector image as Baseline's DB (uid 1001 entrypoint
+      # handles NFS volume permissions). Create the vector extension at init as
+      # the superuser (Mem0's vector store needs it).
+      containers:
+        - name: postgres
+          image: {{ .Values.mem0.postgres.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: POSTGRESQL_USERNAME
+              value: {{ .Values.mem0.postgres.user | quote }}
+            - name: POSTGRESQL_PASSWORD
+              value: {{ .Values.mem0.postgres.password | quote }}
+            - name: POSTGRESQL_DATABASE
+              value: {{ .Values.mem0.postgres.database | quote }}
+            - name: POSTGRESQL_POSTGRES_PASSWORD
+              value: {{ .Values.mem0.postgres.postgresPassword | quote }}
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.mem0.postgres.user | quote }}]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.mem0.postgres.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+        - name: initdb
+          configMap:
+            name: {{ $name }}-initdb
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-initdb
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+data:
+  00-pgvector.sh: |
+    #!/bin/bash
+    set -e
+    PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 \
+      --username postgres --dbname "$POSTGRESQL_DATABASE" \
+      -c "CREATE EXTENSION IF NOT EXISTS vector;"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mem0-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  selector:
+    app.kubernetes.io/name: mem0-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

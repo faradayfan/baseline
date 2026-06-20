@@ -161,6 +161,52 @@ complete propose → approve → `/context`:
 (Do step 2 from a second Claude session whose `.mcp.json` sets
 `X-Baseline-Principal: reviewer-bob`, or via curl against `/mcp`.)
 
+### Mem0 (personal memories merged into /context)
+
+Phase 2 adds a **Mem0** memory backend so `/context` merges an actor's personal
+memories with the governed facts (spec §10): facts rank above memories, deduped
+by canonical_key, each item tagged `source: fact|memory`.
+
+It is opt-in via `mem0.enabled` (the Pi overlay enables it). The stack runs on
+the cluster: the Mem0 API server, its own pgvector Postgres, and Neo4j (graph
+memory). **Mem0's LLM + embedder use the OpenAI API** — self-hosted Ollama was
+tried first but Pi CPUs are too slow/weak for Mem0's JSON extraction (small models
+emit invalid JSON; inference is ~minutes). Ollama is left in the chart (disabled)
+for a future GPU node.
+
+Setup:
+
+```bash
+# Mem0's API server lacks the DB/graph drivers its own stores need; this image
+# adds them on top of stock (run once):
+make pi-mem0-image
+
+# Put your OpenAI key in deploy/pi/secrets.yaml (gitignored):
+#   mem0:
+#     apiKey: "<random admin key>"
+#     jwtSecret: "<random>"
+#     openaiApiKey: "sk-..."
+make pi-deploy
+```
+
+Seed a memory for an actor (triggers OpenAI extraction):
+
+```bash
+API=$(kubectl --context k3s -n baseline get pod -l app.kubernetes.io/name=mem0-api \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl --context k3s -n baseline exec "$API" -- python3 -c "
+import urllib.request, json
+req = urllib.request.Request('http://localhost:8000/memories',
+  data=json.dumps({'messages':[{'role':'user','content':'I prefer to deploy on Fridays.'}],'user_id':'john'}).encode(),
+  headers={'Content-Type':'application/json'}, method='POST')
+print(urllib.request.urlopen(req, timeout=90).read().decode())"
+```
+
+Then over the remote MCP, `get_context` with `include_memories: true` returns the
+facts first, the memory below, each `source`-tagged. Note: with the OpenAI
+embedder, memory *text* leaves the cluster (Baseline's own fact embeddings stay
+local and separate).
+
 ## Poking the HTTP API directly
 
 Useful for debugging without MCP. Identity comes from the `X-Baseline-Principal`

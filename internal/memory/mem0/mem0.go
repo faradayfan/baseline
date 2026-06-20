@@ -1,6 +1,14 @@
 // Package mem0 adapts the Mem0 REST API to the memory.Source port (§11). The
 // Mem0 REST paths are pinned HERE and nowhere else, so version drift is
 // contained to this one package.
+//
+// This adapter targets the self-hosted Mem0 OSS server (mem0-api-server), whose
+// contract — verified live against the running cluster — is:
+//   - unprefixed paths: GET /memories?user_id=, POST /search, GET /memories/{id}
+//     (the /v1/ prefix is the HOSTED platform at api.mem0.ai, not the OSS server);
+//   - list/search responses are wrapped: {"results": [ {memory, user_id, ...} ]};
+//   - no auth in the OSS build we run (an optional API key is still sent if set,
+//     so the same adapter works against authenticated/hosted deployments).
 package mem0
 
 import (
@@ -19,25 +27,35 @@ import (
 // Source is the Mem0-backed memory source. Selected via MEMORY_SOURCE=mem0.
 type Source struct {
 	baseURL string
+	apiKey  string
 	client  *http.Client
 }
 
-// New builds a Mem0 adapter against baseURL (MEM0_URL).
-func New(baseURL string) Source {
+// New builds a Mem0 adapter against baseURL (MEM0_URL). apiKey is optional: when
+// non-empty it is sent as a Bearer token (for authenticated/hosted deployments);
+// the OSS server we run requires no auth, so "" is fine.
+func New(baseURL, apiKey string) Source {
 	return Source{
 		baseURL: strings.TrimRight(baseURL, "/"),
+		apiKey:  apiKey,
 		client:  &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-// mem0Memory is the Mem0 wire shape. Kept private so its fields never leak past
-// this adapter; everything returned is the neutral memory.Memory.
+// mem0Memory is the Mem0 wire shape for one memory. Kept private so its fields
+// never leak past this adapter; everything returned is the neutral memory.Memory.
 type mem0Memory struct {
 	ID        string         `json:"id"`
 	UserID    string         `json:"user_id"`
 	Memory    string         `json:"memory"`
 	Metadata  map[string]any `json:"metadata"`
 	CreatedAt time.Time      `json:"created_at"`
+}
+
+// mem0List is the wrapped list/search response: {"results": [...], "relations": [...]}.
+// Baseline uses only the flat memories; the graph "relations" are ignored.
+type mem0List struct {
+	Results []mem0Memory `json:"results"`
 }
 
 func (m mem0Memory) toNeutral() memory.Memory {
@@ -47,36 +65,36 @@ func (m mem0Memory) toNeutral() memory.Memory {
 	}
 }
 
-// List → GET /v1/memories?user_id=
+// List → GET /memories?user_id=
 func (s Source) List(ctx context.Context, actorID string, opts memory.ListOpts) ([]memory.Memory, error) {
 	q := url.Values{"user_id": {actorID}}
 	if opts.Limit > 0 {
 		q.Set("limit", strconv.Itoa(opts.Limit))
 	}
-	var out []mem0Memory
-	if err := s.getJSON(ctx, "/v1/memories?"+q.Encode(), &out); err != nil {
+	var out mem0List
+	if err := s.getJSON(ctx, "/memories?"+q.Encode(), &out); err != nil {
 		return nil, err
 	}
-	return toNeutralSlice(out), nil
+	return toNeutralSlice(out.Results), nil
 }
 
-// Search → POST /v1/memories/search
+// Search → POST /search
 func (s Source) Search(ctx context.Context, actorID, query string, opts memory.SearchOpts) ([]memory.Memory, error) {
 	body := map[string]any{"user_id": actorID, "query": query}
 	if opts.Limit > 0 {
 		body["limit"] = opts.Limit
 	}
-	var out []mem0Memory
-	if err := s.postJSON(ctx, "/v1/memories/search", body, &out); err != nil {
+	var out mem0List
+	if err := s.postJSON(ctx, "/search", body, &out); err != nil {
 		return nil, err
 	}
-	return toNeutralSlice(out), nil
+	return toNeutralSlice(out.Results), nil
 }
 
-// Get → GET /v1/memories/{id}
+// Get → GET /memories/{id} (returns a single memory object, unwrapped).
 func (s Source) Get(ctx context.Context, id string) (memory.Memory, error) {
 	var m mem0Memory
-	if err := s.getJSON(ctx, "/v1/memories/"+url.PathEscape(id), &m); err != nil {
+	if err := s.getJSON(ctx, "/memories/"+url.PathEscape(id), &m); err != nil {
 		return memory.Memory{}, err
 	}
 	return m.toNeutral(), nil
@@ -95,6 +113,7 @@ func (s Source) getJSON(ctx context.Context, path string, dst any) error {
 	if err != nil {
 		return err
 	}
+	s.auth(req)
 	return s.do(req, dst)
 }
 
@@ -108,7 +127,15 @@ func (s Source) postJSON(ctx context.Context, path string, body, dst any) error 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	s.auth(req)
 	return s.do(req, dst)
+}
+
+// auth adds the Bearer token when an API key is configured (no-op otherwise).
+func (s Source) auth(req *http.Request) {
+	if s.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	}
 }
 
 func (s Source) do(req *http.Request, dst any) error {

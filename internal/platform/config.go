@@ -31,6 +31,7 @@ type Config struct {
 	// Memory source (§11)
 	MemorySource MemorySourceKind
 	Mem0URL      string // required when MemorySource == mem0
+	Mem0APIKey   string // optional bearer token (OSS server needs none)
 
 	// Embeddings (§11.1) — EmbedderDims MUST equal the facts.embedding vector(N) dimension.
 	EmbedderURL   string
@@ -51,6 +52,7 @@ func Load() (Config, error) {
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		MemorySource:  MemorySourceKind(strings.ToLower(envOr("MEMORY_SOURCE", string(MemoryMem0)))),
 		Mem0URL:       os.Getenv("MEM0_URL"),
+		Mem0APIKey:    os.Getenv("MEM0_API_KEY"),
 		EmbedderURL:   os.Getenv("EMBEDDER_URL"),
 		EmbedderModel: envOr("EMBEDDER_MODEL", "nomic-embed-text"),
 		OIDCIssuer:    os.Getenv("OIDC_ISSUER"),

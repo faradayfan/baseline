@@ -15,7 +15,7 @@ image:
   repository: baseline
   pullPolicy: IfNotPresent
 
-memorySource: none      # Phase 1: facts-only. Phase 2 flips this to mem0.
+memorySource: mem0      # Phase 2: read personal memories from the in-cluster Mem0.
 
 service:
   type: LoadBalancer
@@ -48,7 +48,38 @@ reaper:
   enabled: true
   schedule: "*/15 * * * *"
 
-# Phase 2: enable Mem0 and point at the in-cluster Service.
+# Phase 2: Mem0 stack (Ollama LLM+embedder, pgvector, Neo4j) on the cluster.
 mem0:
-  enabled: false
-  url: ""
+  enabled: true
+
+  # Real secrets come from deploy/pi/secrets.yaml (gitignored). Placeholders here.
+  apiKey: "pi-mem0-admin-key"
+  jwtSecret: "pi-jwt-secret"
+
+  # Pin the heavy model + graph workloads to the 8GB node.
+  nodeSelector:
+    kubernetes.io/hostname: k8s-worker-04
+
+  api:
+    # Custom image (OpenAI default) = stock mem0-api + the psycopg/neo4j drivers
+    # the stock image is missing for its own pgvector/neo4j stores.
+    # OPENAI_API_KEY comes from secrets.yaml.
+    image: <REGISTRY_HOST>:5000/baseline-mem0-api:openai
+    pullPolicy: Always
+
+  # Disabled: Pi CPU too slow/weak for self-hosted LLM extraction. Using OpenAI.
+  ollama:
+    enabled: false
+
+  postgres:
+    # Custom Bitnami+pgvector image in the in-cluster registry.
+    image: <REGISTRY_HOST>:5000/baseline-postgresql:16-pgvector
+    persistence:
+      storageClass: nfs-client
+      size: 2Gi
+
+  neo4j:
+    enabled: true
+    persistence:
+      storageClass: nfs-client
+      size: 5Gi
