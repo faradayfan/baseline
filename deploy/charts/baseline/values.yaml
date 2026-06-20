@@ -23,6 +23,25 @@ service:
   port: 8080
   annotations: {}        # Pi overlay adds the MetalLB loadBalancerIPs annotation
 
+# Read-only dashboard (a separate nginx-served Vite SPA). Disabled by default;
+# the local overlay enables it. It proxies /api -> the in-cluster Baseline
+# Service and is read-only over the GET endpoints. Identity is the spoofable
+# X-Baseline-Principal "view as" header — NOT real auth (single-user POC).
+ui:
+  enabled: false
+  image:
+    registry: ""              # empty for local; an overlay sets the registry
+    repository: baseline-ui
+    tag: "dev"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP           # local overlay flips to LoadBalancer (localhost:8081)
+    port: 80
+    annotations: {}
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
 probes:
   initialDelay: 5
 

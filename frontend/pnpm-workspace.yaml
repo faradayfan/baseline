@@ -1,0 +1,5 @@
+# Allow esbuild (Vite's bundler) to run its postinstall, which fetches its
+# native binary. Without this, pnpm 11 blocks the build script and `pnpm build`
+# fails its deps-status precheck.
+allowBuilds:
+  esbuild: true

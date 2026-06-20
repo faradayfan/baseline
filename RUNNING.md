@@ -143,6 +143,29 @@ Point your `.mcp.json` (or the hook's `BASELINE_CONTEXT_URL`) at
 `http://localhost:8080` — same shape as the remote, just localhost. Tear down with
 `make local-down` (add `CLEAN=1` to drop PVCs).
 
+### Dashboard (read-only UI)
+
+A separate Vite/React SPA gives a browser view of facts, the promotion inbox,
+per-fact audit trails, namespaces, and a "what an agent sees" context preview —
+so you stop reaching for `psql`/`curl` to inspect state.
+
+```bash
+# hot-reload dev against a running backend on :8080 (Vite on :5173):
+make ui-dev                 # or: cd frontend && pnpm dev
+#   VITE_BACKEND_TARGET=http://localhost:8080 by default; override to a port-forward.
+
+# containerized: `make local-up` builds + deploys it alongside the stack:
+open http://localhost:8081  # LoadBalancer -> localhost (baseline holds :8080)
+```
+
+Identity is the **`X-Baseline-Principal` header**, surfaced as a **"view as"**
+control in the header (default `john`, stored in localStorage). It is read-only
+and **spoofable by design** — the same trust model as the rest of this local
+POC, and read-only means it can mutate nothing. This is a single-user inspector,
+**not** the org governance console: real auth (OIDC) and write actions
+(propose/approve from the UI) are deliberate follow-ups. Authoring still goes
+through the governed MCP/REST path.
+
 > If memory adds return `"results": []`, check `kubectl logs` for the mem0-api pod.
 > A `expected 1536 dimensions, not 768` error means the pgvector collection was
 > created at the OpenAI size — drop it (`DROP TABLE memories;` in mem0-postgres)

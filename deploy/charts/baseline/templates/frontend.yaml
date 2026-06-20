@@ -1,0 +1,68 @@
+{{- if .Values.ui.enabled }}
+{{- $fullname := printf "%s-ui" (include "baseline.fullname" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: baseline-ui
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: baseline-ui
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "baseline.labels" . | nindent 8 }}
+        app.kubernetes.io/name: baseline-ui
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: ui
+    spec:
+      containers:
+        - name: ui
+          image: {{ include "baseline.image" (dict "image" .Values.ui.image "global" .Values.ui.image "chart" .Chart) }}
+          imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            # nginx envsubst's this into its proxy_pass at startup. Points at the
+            # in-cluster Baseline Service (<release>-baseline:<port>).
+            - name: BACKEND_URL
+              value: {{ printf "http://%s:%v" (include "baseline.fullname" .) .Values.service.port | quote }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.ui.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: baseline-ui
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- with .Values.ui.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.ui.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.ui.service.port }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: baseline-ui
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

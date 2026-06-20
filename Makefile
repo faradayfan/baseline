@@ -61,11 +61,12 @@ K8S_NODE       ?= desktop-control-plane
 LOCAL_CONTEXT  ?= docker-desktop
 
 .PHONY: local-images
-local-images: ## Build the 3 images and load them into Docker Desktop's node
+local-images: ## Build the 4 images (incl. the read-only UI) and load them into Docker Desktop's node
 	docker build -t baseline:dev .
 	docker build -t baseline-postgresql:16-pgvector deploy/postgres
 	docker build --build-arg PATCH_OLLAMA=1 -t baseline-mem0-api:ollama deploy/mem0-api
-	@for img in baseline:dev baseline-postgresql:16-pgvector baseline-mem0-api:ollama; do \
+	docker build -t baseline-ui:dev frontend
+	@for img in baseline:dev baseline-postgresql:16-pgvector baseline-mem0-api:ollama baseline-ui:dev; do \
 	  echo "loading $$img into $(K8S_NODE)..."; \
 	  docker save "$$img" | docker exec -i $(K8S_NODE) ctr -n k8s.io images import - >/dev/null; \
 	done
@@ -80,6 +81,17 @@ local-up: local-images helm-deps ## Build+load images and install the chart on D
 	@echo ""
 	@echo "Installed. Watch: kubectl --context $(LOCAL_CONTEXT) -n baseline get pods -w"
 	@echo "Baseline:    http://localhost:8080  (LoadBalancer -> localhost; no port-forward)"
+	@echo "Dashboard:   http://localhost:8081  (read-only UI; 'view as' header auth)"
+
+.PHONY: ui-dev
+ui-dev: ## Run the dashboard with hot-reload (Vite :5173, proxies /api -> VITE_BACKEND_TARGET||:8080)
+	cd frontend && pnpm install && pnpm dev
+
+.PHONY: ui-image
+ui-image: ## Build the UI image and load it into Docker Desktop's node
+	docker build -t baseline-ui:dev frontend
+	docker save baseline-ui:dev | docker exec -i $(K8S_NODE) ctr -n k8s.io images import - >/dev/null
+	kubectl --context $(LOCAL_CONTEXT) -n baseline rollout restart deployment baseline-baseline-ui 2>/dev/null || true
 
 .PHONY: local-seed
 local-seed: ## Seed org namespace + grants on the local cluster (PRINCIPAL=you)

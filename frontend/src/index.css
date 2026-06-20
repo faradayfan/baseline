@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+/* Design tokens. Tailwind v4 reads these as utilities, e.g. bg-brand-600,
+   text-muted. Neutral/slate palette — Baseline is a governance tool, not a
+   money app. */
+@theme {
+  --color-brand-50: #eef2f7;
+  --color-brand-100: #d8e1ec;
+  --color-brand-500: #3f5a78;
+  --color-brand-600: #2f4660;
+  --color-brand-700: #1d3043;
+
+  /* Fact-status semantics */
+  --color-active: #15803d; /* active / live */
+  --color-pending: #b45309; /* proposed / pending review */
+  --color-stale: #b91c1c; /* revoked / superseded / expired */
+
+  --color-ink: #1f2933; /* primary text */
+  --color-muted: #6b7280; /* secondary text */
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f6f7f9;
+  color: var(--color-ink);
+  font-family:
+    system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Small component classes so markup stays readable. */
+@layer components {
+  .card {
+    @apply rounded-xl border border-gray-200 bg-white p-5 shadow-sm;
+  }
+  .btn,
+  .btn-primary,
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1 rounded-lg px-3 py-1.5
+      text-sm font-medium transition-colors disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-brand-600 text-white hover:bg-brand-700;
+  }
+  .btn-ghost {
+    @apply border border-gray-300 bg-white text-gray-700 hover:bg-gray-50;
+  }
+  .input {
+    @apply rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm
+      outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
+  }
+  .label {
+    @apply text-xs font-medium text-gray-500;
+  }
+  .th {
+    @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500;
+  }
+  .td {
+    @apply px-3 py-2 text-sm align-top;
+  }
+  .chip {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+}

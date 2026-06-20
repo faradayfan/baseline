@@ -20,6 +20,19 @@ service:
   type: LoadBalancer   # Docker Desktop binds this to localhost:8080 (no annotation)
   port: 8080
 
+# Read-only dashboard. Built locally and loaded into the node (no registry).
+# LoadBalancer → Docker Desktop binds it to localhost:8081 (baseline holds 8080).
+ui:
+  enabled: true
+  image:
+    registry: ""
+    repository: baseline-ui
+    tag: dev
+    pullPolicy: IfNotPresent
+  service:
+    type: LoadBalancer
+    port: 8081
+
 postgres:
   # Locally-built custom pgvector image, loaded into the node (no registry prefix).
   image:
