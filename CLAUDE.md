@@ -9,8 +9,11 @@ the Go module + store + namespaces (M0); RBAC, entitlements, and auth middleware
 `internal/rbac` + `internal/server`); and the facts state machine, canonical-key derivation,
 append-only audit, and the full promotions workflow with facts/promotions HTTP endpoints (M2,
 `internal/facts` + `internal/audit` + `internal/promotions`). All with unit + integration + API
-tests; §14 invariants 1,5,6,7,8,10,16,17 are covered. Next up: M2a auto-promote engine, then M3
-(`/context`). The plan lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
+tests; §14 invariants 1,5,6,7,8,10,16,17 are covered. **M2a is also complete**: the pluggable,
+versioned auto-promote engine (`internal/autopromote` port + registry, `simple/v1` engine), wired
+into the propose path and the namespace policy-validation path — §14 11–15 covered (fail-closed,
+attribution, determinism, version isolation, invalid-policy rejection). Next up: M3 (`/context`
+resolver + MemorySource adapters). The plan lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
 v1 decisions decided). Read it before implementing anything; the decisions in §18 are settled — do

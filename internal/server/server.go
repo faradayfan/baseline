@@ -6,6 +6,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/faradayfan/baseline/internal/autopromote"
+	"github.com/faradayfan/baseline/internal/autopromote/simple"
 	"github.com/faradayfan/baseline/internal/facts"
 	"github.com/faradayfan/baseline/internal/namespaces"
 	"github.com/faradayfan/baseline/internal/promotions"
@@ -19,20 +21,24 @@ type Server struct {
 	rbac     *rbac.Repo
 	promos   *promotions.Service
 	factsSvc *facts.Service
+	engines  *autopromote.Registry
 	auth     Authenticator
 }
 
 // New constructs a Server from a pool and an authenticator. The authenticator is
 // injected so tests can supply HeaderAuthenticator and production can supply
-// OIDC/mTLS without changing handler code.
+// OIDC/mTLS without changing handler code. The auto-promote registry is built
+// here with the engines this build ships (currently simple/v1).
 func New(pool *pgxpool.Pool, auth Authenticator) *Server {
 	nsRepo := namespaces.NewRepo(pool)
+	engines := autopromote.NewRegistry(simple.New())
 	return &Server{
 		pool:     pool,
 		ns:       nsRepo,
 		rbac:     rbac.NewRepo(pool),
-		promos:   promotions.NewService(pool, nsRepo),
+		promos:   promotions.NewService(pool, nsRepo, engines),
 		factsSvc: facts.NewService(pool),
+		engines:  engines,
 		auth:     auth,
 	}
 }

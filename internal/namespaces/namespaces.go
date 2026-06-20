@@ -4,6 +4,7 @@
 package namespaces
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,8 +50,8 @@ func (p Policy) isZero() bool {
 // policy-write time (§7.4). Stored as raw JSON so a namespace can never hold
 // rules its engine cannot interpret once Validate passes.
 type AutoPromote struct {
-	Engine string          `json:"engine"`           // e.g. "simple/v1"
-	Rules  []byte          `json:"rules,omitempty"`  // raw JSON, engine-specific
+	Engine string          `json:"engine"`          // e.g. "simple/v1"
+	Rules  json.RawMessage `json:"rules,omitempty"` // raw JSON, engine-specific
 }
 
 // DefaultPolicy returns the seeded default for a namespace kind (§7.3):

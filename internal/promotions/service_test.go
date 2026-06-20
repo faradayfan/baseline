@@ -23,7 +23,7 @@ func setup(t *testing.T) (*promotions.Service, *pgxpool.Pool, uuid.UUID) {
 	if err != nil {
 		t.Fatalf("seed org: %v", err)
 	}
-	return promotions.NewService(pool, nsRepo), pool, org.ID
+	return promotions.NewService(pool, nsRepo, nil), pool, org.ID
 }
 
 func propose(t *testing.T, svc *promotions.Service, ns uuid.UUID, proposer, statement string, subj facts.Subject) promotions.PromotionRequest {

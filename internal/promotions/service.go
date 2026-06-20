@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/faradayfan/baseline/internal/audit"
+	"github.com/faradayfan/baseline/internal/autopromote"
 	"github.com/faradayfan/baseline/internal/facts"
 	"github.com/faradayfan/baseline/internal/namespaces"
 )
@@ -27,12 +28,16 @@ var (
 // namespaces packages, each step in a single transaction so a transition and
 // its audit event commit atomically (§14.5).
 type Service struct {
-	pool *pgxpool.Pool
-	ns   *namespaces.Repo
+	pool      *pgxpool.Pool
+	ns        *namespaces.Repo
+	engines   *autopromote.Registry
 }
 
-func NewService(pool *pgxpool.Pool, ns *namespaces.Repo) *Service {
-	return &Service{pool: pool, ns: ns}
+// NewService wires the workflow. engines may be nil (no auto-promotion anywhere);
+// when non-nil, namespaces whose policy names a registered engine are evaluated
+// at propose time (§7.4).
+func NewService(pool *pgxpool.Pool, ns *namespaces.Repo, engines *autopromote.Registry) *Service {
+	return &Service{pool: pool, ns: ns, engines: engines}
 }
 
 // ProposeInput is the propose-time payload (§8.2).
@@ -42,8 +47,16 @@ type ProposeInput struct {
 	Subject            facts.Subject
 	CandidateMemoryIDs []string
 	Provenance         facts.Provenance
+	Tags               []string
+	Metadata           map[string]any
 	Proposer           string
 	IdempotencyKey     string // optional
+
+	// Candidate signals consumed by the auto-promote engine (§7.4). Optional —
+	// absent values simply won't match engine rules that reference them.
+	OriginType string // provenance.origin_type
+	SourceKind string // provenance.source.kind
+	ActorType  string // actor.type
 }
 
 // Propose creates a Fact in `proposed` and a PromotionRequest in `pending`,
@@ -96,6 +109,8 @@ func (s *Service) Propose(ctx context.Context, in ProposeInput) (PromotionReques
 			Status:          facts.StatusProposed,
 			SourceMemoryIDs: in.CandidateMemoryIDs,
 			Provenance:      in.Provenance,
+			Tags:            in.Tags,
+			Metadata:        in.Metadata,
 			CreatedBy:       in.Proposer,
 		})
 		if err != nil {
@@ -121,16 +136,78 @@ func (s *Service) Propose(ctx context.Context, in ProposeInput) (PromotionReques
 			return err
 		}
 
-		return audit.Write(ctx, tx, audit.Event{
+		if err := audit.Write(ctx, tx, audit.Event{
 			Principal:   in.Proposer,
 			Action:      "fact.proposed",
 			SubjectType: "promotion",
 			SubjectID:   out.ID,
 			ToState:     string(StatePending),
 			Detail:      map[string]any{"fact_id": fact.ID, "canonical_key": key, "conflict_with": conflictWith},
-		})
+		}); err != nil {
+			return err
+		}
+
+		// Auto-promotion (§7.4): if the namespace pins an engine and it returns a
+		// positive decision, activate straight away within this tx. Any error or
+		// non-match falls through to human review — FAIL CLOSED (§14.11).
+		out.FactID = fact.ID
+		out.ConflictWith = conflictWith
+		s.maybeAutoPromote(ctx, tx, &out, policy.Policy.AutoPromote, in)
+		return nil
 	})
 	return out, err
+}
+
+// maybeAutoPromote evaluates the pinned engine and, on a positive decision,
+// activates the fact (superseding any conflict) and marks the promotion approved
+// — attributing the action to engine:<ID> and tagging the fact auto:true
+// (§14.12). It is best-effort and fail-closed: any engine error, an unknown
+// engine, or no match leaves the promotion in `pending` for human review, and
+// such errors are swallowed here (never abort the propose tx).
+func (s *Service) maybeAutoPromote(ctx context.Context, tx pgx.Tx, p *PromotionRequest, ap *namespaces.AutoPromote, in ProposeInput) {
+	if s.engines == nil || ap == nil || ap.Engine == "" {
+		return
+	}
+	cand := autopromote.Candidate{
+		ProvenanceOriginType: in.OriginType,
+		ProvenanceSourceKind: in.SourceKind,
+		ActorType:            in.ActorType,
+		Tags:                 in.Tags,
+		Metadata:             in.Metadata,
+	}
+	decision, err := s.engines.Evaluate(ctx, ap.Engine, cand, ap.Rules)
+	if err != nil || !decision.AutoPromote {
+		return // fail closed → human review
+	}
+
+	enginePrincipal := "engine:" + ap.Engine
+
+	// Supersede-before-activate to honor facts_active_unique (§14.2/7).
+	if p.ConflictWith != nil {
+		if err := facts.Supersede(ctx, tx, *p.ConflictWith, p.FactID); err != nil {
+			return
+		}
+		_ = audit.Write(ctx, tx, audit.Event{
+			Principal: enginePrincipal, Action: "fact.superseded", SubjectType: "fact",
+			SubjectID: *p.ConflictWith, FromState: string(facts.StatusActive), ToState: string(facts.StatusSuperseded),
+			Detail: map[string]any{"superseded_by": p.FactID},
+		})
+	}
+	if err := facts.ActivateAuto(ctx, tx, p.FactID); err != nil {
+		return
+	}
+	p.State = StateApproved
+	if err := updateStateAndReviews(ctx, tx, p.ID, p.State, p.Reviews); err != nil {
+		return
+	}
+	_ = audit.Write(ctx, tx, audit.Event{
+		Principal:   enginePrincipal, // §14.12 attribution
+		Action:      "fact.auto_promoted",
+		SubjectType: "fact",
+		SubjectID:   p.FactID,
+		ToState:     string(facts.StatusActive),
+		Detail:      map[string]any{"engine": ap.Engine, "matched_rule": decision.MatchedRule, "reason": decision.Reason},
+	})
 }
 
 // Submit moves a pending/changes_requested promotion (and its fact) into review.

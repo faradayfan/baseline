@@ -97,6 +97,15 @@ func (s *Server) patchNamespacePolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	// Validate any auto-promote engine + rules against the pinned engine BEFORE
+	// the write: an unknown engine ID or rules the engine can't interpret make
+	// the policy invalid and are rejected here (fail closed, §14.15).
+	if policy.AutoPromote != nil && policy.AutoPromote.Engine != "" {
+		if err := s.engines.ValidatePolicy(policy.AutoPromote.Engine, policy.AutoPromote.Rules); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid auto_promote policy: "+err.Error())
+			return
+		}
+	}
 	if err := s.ns.UpdatePolicy(r.Context(), id, policy); errors.Is(err, namespaces.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return

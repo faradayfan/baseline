@@ -132,6 +132,25 @@ func RevokeWithVersion(ctx context.Context, q Querier, id uuid.UUID, expectedVer
 	return nil
 }
 
+// ActivateAuto activates a fact via auto-promotion, stamping valid_from=now(),
+// recording the engine as approver, and appending the `auto:true` tag (§14.12).
+// approved_by holds the engine principal so the lineage is traceable.
+func ActivateAuto(ctx context.Context, q Querier, id uuid.UUID) error {
+	tag, err := q.Exec(ctx, `
+		UPDATE facts
+		SET status = 'active', valid_from = now(),
+		    tags = (SELECT array_agg(DISTINCT t) FROM unnest(tags || ARRAY['auto:true']) AS t),
+		    version = version + 1, updated_at = now()
+		WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("facts: activate-auto: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Supersede marks oldID superseded by newID and sets both lineage pointers,
 // atomically (within the caller's tx). §14.7.
 func Supersede(ctx context.Context, q Querier, oldID, newID uuid.UUID) error {
