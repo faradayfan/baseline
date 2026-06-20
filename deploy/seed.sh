@@ -28,11 +28,25 @@ echo "==> finding the Postgres pod"
 POD=$(kc get pod -l app.kubernetes.io/name=postgres -o jsonpath='{.items[0].metadata.name}')
 echo "    $POD"
 
+# The Bitnami subchart stores the app user's password in <release>-postgres under
+# `password`. Pull it so psql can authenticate non-interactively (allow override).
+if [ -z "${PGPASSWORD:-}" ]; then
+  PGSECRET="${PGSECRET:-$(kc get secret -l app.kubernetes.io/name=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)}"
+  PGPASSWORD=$(kc get secret "$PGSECRET" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)
+fi
+if [ -z "${PGPASSWORD:-}" ]; then
+  echo "ERROR: could not resolve the Postgres password (set PGPASSWORD=... to override)" >&2
+  exit 1
+fi
+
+# psql inside the pod with the password supplied via env.
+psql_pod() { kc exec -i "$POD" -- env PGPASSWORD="$PGPASSWORD" psql -U "$PG_USER" -d "$PG_DB" "$@"; }
+
 # Build the role-grant VALUES list.
 ROLE_ARRAY=$(printf "'%s'," $ROLES); ROLE_ARRAY="ARRAY[${ROLE_ARRAY%,}]"
 
 echo "==> seeding org namespace + granting '$PRINCIPAL' [$ROLES] + a sample fact"
-kc exec -i "$POD" -- psql -U "$PG_USER" -d "$PG_DB" >/dev/null <<SQL
+psql_pod >/dev/null <<SQL
 INSERT INTO namespaces (name, kind, policy)
 VALUES ('org', 'org', '{"required_approvals":1}')
 ON CONFLICT (name) DO NOTHING;
@@ -51,7 +65,7 @@ ON CONFLICT DO NOTHING;
 SQL
 
 echo "==> summary"
-kc exec -i "$POD" -- psql -U "$PG_USER" -d "$PG_DB" -tc \
+psql_pod -tc \
   "SELECT '  namespaces: '||count(*) FROM namespaces
    UNION ALL SELECT '  grants for ${PRINCIPAL}: '||count(*) FROM memberships WHERE principal='${PRINCIPAL}'
    UNION ALL SELECT '  active facts: '||count(*) FROM facts WHERE status='active';"
