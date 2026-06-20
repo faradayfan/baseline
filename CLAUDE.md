@@ -4,11 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Implementation is **in progress**, built milestone by milestone (spec §17). **M0 is complete**:
-Go module, config/logging (`internal/platform`), Postgres+pgvector store with embedded goose
-migrations (`internal/store`), the full §12 schema, and the namespaces registry/policy/CRUD
-(`internal/namespaces`) — all with unit and integration tests. Next up: M1 (RBAC + entitlements +
-auth middleware). The plan lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
+Implementation is **in progress**, built milestone by milestone (spec §17). **M0–M2 are complete**:
+the Go module + store + namespaces (M0); RBAC, entitlements, and auth middleware (M1,
+`internal/rbac` + `internal/server`); and the facts state machine, canonical-key derivation,
+append-only audit, and the full promotions workflow with facts/promotions HTTP endpoints (M2,
+`internal/facts` + `internal/audit` + `internal/promotions`). All with unit + integration + API
+tests; §14 invariants 1,5,6,7,8,10,16,17 are covered. Next up: M2a auto-promote engine, then M3
+(`/context`). The plan lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
 v1 decisions decided). Read it before implementing anything; the decisions in §18 are settled — do

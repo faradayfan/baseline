@@ -6,27 +6,34 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/faradayfan/baseline/internal/facts"
 	"github.com/faradayfan/baseline/internal/namespaces"
+	"github.com/faradayfan/baseline/internal/promotions"
 	"github.com/faradayfan/baseline/internal/rbac"
 )
 
 // Server holds the wired dependencies and exposes an http.Handler.
 type Server struct {
-	pool *pgxpool.Pool
-	ns   *namespaces.Repo
-	rbac *rbac.Repo
-	auth Authenticator
+	pool     *pgxpool.Pool
+	ns       *namespaces.Repo
+	rbac     *rbac.Repo
+	promos   *promotions.Service
+	factsSvc *facts.Service
+	auth     Authenticator
 }
 
 // New constructs a Server from a pool and an authenticator. The authenticator is
 // injected so tests can supply HeaderAuthenticator and production can supply
 // OIDC/mTLS without changing handler code.
 func New(pool *pgxpool.Pool, auth Authenticator) *Server {
+	nsRepo := namespaces.NewRepo(pool)
 	return &Server{
-		pool: pool,
-		ns:   namespaces.NewRepo(pool),
-		rbac: rbac.NewRepo(pool),
-		auth: auth,
+		pool:     pool,
+		ns:       nsRepo,
+		rbac:     rbac.NewRepo(pool),
+		promos:   promotions.NewService(pool, nsRepo),
+		factsSvc: facts.NewService(pool),
+		auth:     auth,
 	}
 }
 
@@ -55,6 +62,23 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/{id}/members", s.listMembers)
 			r.Post("/{id}/members", s.addMember)
 			r.Delete("/{id}/members/{principal}", s.removeMember)
+		})
+
+		r.Route("/promotions", func(r chi.Router) {
+			r.Post("/", s.createPromotion)
+			r.Get("/", s.listPromotions)
+			r.Get("/{id}", s.getPromotion)
+			r.Post("/{id}/submit", s.promotionAction("submit"))
+			r.Post("/{id}/approve", s.promotionAction("approve"))
+			r.Post("/{id}/reject", s.promotionAction("reject"))
+			r.Post("/{id}/request-changes", s.promotionAction("request-changes"))
+			r.Post("/{id}/withdraw", s.promotionAction("withdraw"))
+		})
+
+		r.Route("/facts", func(r chi.Router) {
+			r.Get("/{id}", s.getFact)
+			r.Get("/{id}/history", s.getFactHistory)
+			r.Patch("/{id}", s.revokeFact)
 		})
 	})
 
