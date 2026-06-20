@@ -27,6 +27,20 @@ type Server struct {
 	context  *contextsvc.Service
 	engines  *autopromote.Registry
 	auth     Authenticator
+
+	// middleware are applied (outermost-first) around the whole router — e.g. the
+	// OTEL span middleware. Optional; set via Use.
+	middleware []func(http.Handler) http.Handler
+}
+
+// Use registers a middleware applied around the entire router (e.g. OTEL spans).
+// Call before Handler.
+func (s *Server) Use(mw func(http.Handler) http.Handler) { s.middleware = append(s.middleware, mw) }
+
+// SetLatencyRecorder attaches the approval-latency recorder to the promotion
+// workflow (the metrics.Metrics satisfies promotions.LatencyRecorder).
+func (s *Server) SetLatencyRecorder(r promotions.LatencyRecorder) {
+	s.promos.WithLatencyRecorder(r)
 }
 
 // New constructs a Server with the null memory source (standards-only). Use
@@ -102,5 +116,10 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/context", s.getContext)
 	})
 
-	return r
+	// Apply registered middleware outermost-first (e.g. OTEL spans wrap everything).
+	var h http.Handler = r
+	for i := len(s.middleware) - 1; i >= 0; i-- {
+		h = s.middleware[i](h)
+	}
+	return h
 }

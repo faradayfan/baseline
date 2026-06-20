@@ -12,12 +12,15 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel"
 
 	"github.com/faradayfan/baseline/internal/mcpbridge"
 	"github.com/faradayfan/baseline/internal/memory"
 	"github.com/faradayfan/baseline/internal/memory/mem0"
 	"github.com/faradayfan/baseline/internal/memory/null"
+	"github.com/faradayfan/baseline/internal/metrics"
 	"github.com/faradayfan/baseline/internal/platform"
+	"github.com/faradayfan/baseline/internal/reaper"
 	"github.com/faradayfan/baseline/internal/server"
 	"github.com/faradayfan/baseline/internal/store"
 )
@@ -46,9 +49,32 @@ func main() {
 	}
 	defer st.Close()
 
+	// Reaper mode (M5): run one staleness pass and exit. Deployed as a CronJob
+	// (§13). active facts past valid_to become expired, each with an audit event.
+	if os.Getenv("BASELINE_REAP") == "true" {
+		res, err := reaper.New(st.Pool).Reap(ctx)
+		if err != nil {
+			log.Error("reap", "err", err)
+			os.Exit(1)
+		}
+		log.Info("reap complete", "expired", res.Expired, "expiring_24h", res.ExpiringSoon)
+		return
+	}
+
+	// Observability (§13): meter provider + per-request spans + named metrics.
+	ot := platform.SetupOTel("baseline")
+	defer func() { _ = ot.Shutdown(context.Background()) }()
+	mx, err := metrics.New(otel.Meter("baseline"), st.Pool)
+	if err != nil {
+		log.Error("metrics", "err", err)
+		os.Exit(1)
+	}
+
 	// NOTE: HeaderAuthenticator is for local/dev use only. Production must wire
 	// an OIDC/mTLS authenticator here (§13) before exposing the service.
 	app := server.NewWithMemory(st.Pool, server.HeaderAuthenticator{}, memorySource(cfg))
+	app.Use(ot.SpanMiddleware)
+	app.SetLatencyRecorder(mx)
 
 	// MCP-over-stdio mode (M4): serve the thin tool bridge instead of HTTP. The
 	// principal comes from BASELINE_MCP_PRINCIPAL (dev seam; production resolves

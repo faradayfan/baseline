@@ -20,8 +20,13 @@ coupling guarantee covered. **M4 is also complete**: a `GET /facts` list/search 
 bridge (`internal/mcpbridge`) exposing the five §9 tools (`get_context`, `search_facts`,
 `propose_fact`, `list_my_promotions`, `review_promotion`) as a *thin* bridge — each tool dispatches a
 synthetic request through the same `server.Handler()` in-process, so authn/RBAC/audit are reused
-verbatim. Uses the official MCP Go SDK; `BASELINE_MCP_STDIO=true` serves it over stdio. Next up: M5
-(reaper + OTEL), M6 (conformance + OpenAPI). The plan lives at
+verbatim. Uses the official MCP Go SDK; `BASELINE_MCP_STDIO=true` serves it over stdio. **M5 is also
+complete**: the reaper (`internal/reaper`, `active→expired` past `valid_to` with an audit event each,
+run via `BASELINE_REAP=true` as a CronJob) and OTEL observability (`internal/metrics` + the span
+middleware in `internal/platform`) — the five §13 metrics (`promotion_queue_depth{namespace}`,
+`approval_latency_seconds`, `facts_active`, `facts_expiring_24h`, `conflicts_open`) and per-request
+spans. Only **M6** remains: the `test/conformance` suite asserting all 17 §14 invariants against a
+live server, plus `api/openapi.yaml`. The plan lives at
 `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all

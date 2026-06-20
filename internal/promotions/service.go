@@ -28,9 +28,17 @@ var (
 // namespaces packages, each step in a single transaction so a transition and
 // its audit event commit atomically (§14.5).
 type Service struct {
-	pool      *pgxpool.Pool
-	ns        *namespaces.Repo
-	engines   *autopromote.Registry
+	pool    *pgxpool.Pool
+	ns      *namespaces.Repo
+	engines *autopromote.Registry
+	latency LatencyRecorder
+}
+
+// LatencyRecorder records the propose→active duration (approval_latency_seconds).
+// The metrics package satisfies it; kept as an interface so this package does not
+// import metrics/OTEL.
+type LatencyRecorder interface {
+	RecordApprovalLatency(ctx context.Context, seconds float64)
 }
 
 // NewService wires the workflow. engines may be nil (no auto-promotion anywhere);
@@ -38,6 +46,13 @@ type Service struct {
 // at propose time (§7.4).
 func NewService(pool *pgxpool.Pool, ns *namespaces.Repo, engines *autopromote.Registry) *Service {
 	return &Service{pool: pool, ns: ns, engines: engines}
+}
+
+// WithLatencyRecorder attaches a latency recorder and returns the service, for
+// fluent wiring at startup.
+func (s *Service) WithLatencyRecorder(r LatencyRecorder) *Service {
+	s.latency = r
+	return s
 }
 
 // ProposeInput is the propose-time payload (§8.2).
@@ -270,6 +285,10 @@ func (s *Service) Approve(ctx context.Context, id uuid.UUID, reviewer, comment s
 			Detail:      map[string]any{"approvals": p.ApprovalCount(), "required": p.RequiredApprovals},
 		})
 	})
+	// Record propose→active latency once the activation has committed (§13).
+	if err == nil && result.State == StateApproved && s.latency != nil {
+		s.latency.RecordApprovalLatency(ctx, time.Since(result.CreatedAt).Seconds())
+	}
 	return result, err
 }
 
