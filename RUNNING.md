@@ -87,6 +87,80 @@ claude mcp add baseline /ABSOLUTE/PATH/TO/baseline/bin/baseline \
   -e MEMORY_SOURCE=none -e BASELINE_MCP_STDIO=true -e BASELINE_MCP_PRINCIPAL=local-dev
 ```
 
+## Remote (Raspberry Pi k3s cluster)
+
+This deploys Baseline centrally and connects a local Claude to it over the
+network — emulating org onboarding. Identity is still the `X-Baseline-Principal`
+header (a POC placeholder for OIDC/mTLS); only run this on a trusted LAN.
+
+### Deploy
+
+```bash
+# one-time: log in to the in-cluster registry (plain HTTP, add to Docker
+# "insecure-registries"): docker login <REGISTRY_HOST>:5000
+
+# one-time (and on PG version bumps): build + push the custom Postgres image
+# (Bitnami base + pgvector — stock Bitnami lacks the `vector` extension).
+make pi-pg-image
+
+make pi-deploy            # buildx arm64 -> push -> helm dep build -> helm upgrade on k3s
+kubectl --context k3s -n baseline get pods -w
+```
+
+> Postgres runs the Bitnami subchart pointed at that custom pgvector image, so the
+> subchart's NFS/volume-permissions handling works (a plain pgvector Deployment
+> trips over NFS root-squash on `nfs-client`).
+
+Baseline comes up on the MetalLB IP **<BASELINE_LB_IP>** (port 8080), serving the
+REST API, `/healthz`, `/readyz`, and the MCP endpoint at **`/mcp`**.
+
+```bash
+curl http://<BASELINE_LB_IP>:8080/healthz     # {"status":"ok"}
+curl http://<BASELINE_LB_IP>:8080/readyz      # {"status":"ready"} once Postgres is up
+```
+
+### Onboard (seed + grant roles)
+
+```bash
+PRINCIPAL=john ./deploy/seed.sh                 # org namespace + grants + sample fact
+PRINCIPAL=reviewer-bob ROLES=reviewer ./deploy/seed.sh   # a 2nd principal to approve with
+```
+
+### Connect Claude to the remote server
+
+Point your MCP config at the remote URL (no local binary, no local Postgres).
+Identity travels in the header:
+
+```json
+{
+  "mcpServers": {
+    "baseline": {
+      "type": "http",
+      "url": "http://<BASELINE_LB_IP>:8080/mcp",
+      "headers": { "X-Baseline-Principal": "john" }
+    }
+  }
+}
+```
+
+Reload the extension. `get_context` / `search_facts` / `propose_fact` now run
+against the **cluster**. Because identity is per-request, a teammate using the
+same URL with their own `X-Baseline-Principal` sees only their entitled
+namespaces.
+
+### Full governance loop across two principals
+
+Separation of duties means a principal can't approve its own proposal. To run a
+complete propose → approve → `/context`:
+
+1. As `john` (contributor): `propose_fact` → it lands in `pending`.
+2. As `reviewer-bob` (reviewer, seeded above): `review_promotion` with
+   `action=approve` → the fact goes `active`.
+3. As `john`: `get_context` → the new fact appears.
+
+(Do step 2 from a second Claude session whose `.mcp.json` sets
+`X-Baseline-Principal: reviewer-bob`, or via curl against `/mcp`.)
+
 ## Poking the HTTP API directly
 
 Useful for debugging without MCP. Identity comes from the `X-Baseline-Principal`

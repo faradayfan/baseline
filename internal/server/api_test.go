@@ -84,6 +84,19 @@ func TestAPI_Healthz_NoAuth(t *testing.T) {
 	}
 }
 
+func TestAPI_Readyz_NoAuth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	api, _ := newAPI(t)
+	resp := api.Do(t, "GET", "/readyz", nil, nil)
+	defer resp.Body.Close()
+	// DB is reachable in the test env, so readiness is 200.
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("readyz status = %d, want 200", resp.StatusCode)
+	}
+}
+
 func TestAPI_CreateNamespace_PlatformAdminOnly(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")

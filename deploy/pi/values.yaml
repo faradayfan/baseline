@@ -1,0 +1,54 @@
+# Raspberry Pi k3s cluster overlay.
+#
+# Cluster facts (shared with the finances deployment):
+#   - kube-context:  k3s
+#   - in-cluster registry: <REGISTRY_HOST>:5000 (MetalLB LB, plain HTTP — `docker
+#     login <REGISTRY_HOST>:5000` once; add it to Docker's "insecure-registries").
+#   - MetalLB pool "home-pool" <FINANCES_LB_IP>-250 (.250=registry, .240=finances).
+#     Baseline takes .241.
+#   - storageClass: nfs-client
+#
+# image.tag is supplied at deploy time as the git short SHA (--set-string image.tag=...).
+
+image:
+  registry: <REGISTRY_HOST>:5000
+  repository: baseline
+  pullPolicy: IfNotPresent
+
+memorySource: none      # Phase 1: facts-only. Phase 2 flips this to mem0.
+
+service:
+  type: LoadBalancer
+  port: 8080
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: <BASELINE_LB_IP>
+
+# ARM-sized resources for the Pi nodes.
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+postgres:
+  # Custom Bitnami+pgvector image built from deploy/postgres/Dockerfile and pushed
+  # to the in-cluster registry (make pi-pg-image). The registry host has a "." so
+  # the subchart uses it verbatim.
+  image:
+    registry: <REGISTRY_HOST>:5000
+    repository: baseline-postgresql
+    tag: "16-pgvector"
+  primary:
+    persistence:
+      storageClass: nfs-client
+      size: 5Gi
+    resources:
+      requests: { cpu: 100m, memory: 192Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+reaper:
+  enabled: true
+  schedule: "*/15 * * * *"
+
+# Phase 2: enable Mem0 and point at the in-cluster Service.
+mem0:
+  enabled: false
+  url: ""

@@ -34,6 +34,34 @@ func New(handler http.Handler, principal string) *Bridge {
 	return &Bridge{handler: handler, principal: principal}
 }
 
+// PrincipalHeader is the request header carrying the caller's identity over the
+// HTTP MCP transport. This is the dev/POC identity mechanism (the same header the
+// REST HeaderAuthenticator reads); production resolves the principal from OIDC/
+// mTLS and this header is ignored.
+const PrincipalHeader = "X-Baseline-Principal"
+
+// HTTPHandler returns an http.Handler that serves the MCP tools over the
+// streamable-HTTP transport, deriving the principal PER REQUEST from the
+// X-Baseline-Principal header. Mount it (e.g. at /mcp) so remote clients — like a
+// Claude instance pointed at a hosted Baseline — can connect over the network
+// instead of launching a local stdio subprocess.
+//
+// Identity isolation is the security-relevant property here: each request builds
+// a Bridge bound to that request's principal, so two callers with different
+// headers get their own entitlements and can never see each other's scope.
+//
+// The session is Stateless (no server-side session map): each request is
+// self-contained, which suits a hosted multi-client service.
+func HTTPHandler(handler http.Handler) http.Handler {
+	getServer := func(r *http.Request) *mcp.Server {
+		principal := r.Header.Get(PrincipalHeader)
+		// An empty principal yields a bridge that the REST layer will reject with
+		// 401 on every tool call (unauthenticated) — fail closed, no anonymous access.
+		return New(handler, principal).Server()
+	}
+	return mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{Stateless: true})
+}
+
 // Server builds an *mcp.Server with the five §9 tools registered. Serve it over
 // any MCP transport (stdio, streamable HTTP).
 func (b *Bridge) Server() *mcp.Server {

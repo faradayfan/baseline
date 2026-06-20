@@ -3,3 +3,10 @@
 
 # Local environment overrides
 .env
+
+# Per-environment secret overlays (never commit)
+deploy/*/secrets.yaml
+
+# Helm subchart artifacts (fetched via `helm dependency build`; Chart.lock is committed)
+deploy/charts/baseline/charts/
+deploy/charts/baseline/*.tgz

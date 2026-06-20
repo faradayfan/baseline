@@ -1,0 +1,102 @@
+{{- $fullname := include "baseline.fullname" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: baseline
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: baseline
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "baseline.labels" . | nindent 8 }}
+        app.kubernetes.io/name: baseline
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: server
+      annotations:
+        # Roll the pod whenever the Secret content (DATABASE_URL etc.) changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "baseline.postgresHost" . }} 5432; do
+                echo "waiting for postgres..."; sleep 2;
+              done
+      {{- end }}
+      containers:
+        - name: baseline
+          image: {{ include "baseline.image" (dict "image" .Values.image "global" .Values.image "chart" .Chart) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          env:
+            - name: BASELINE_ADDR
+              value: {{ printf ":%v" .Values.service.port | quote }}
+            - name: MEMORY_SOURCE
+              value: {{ .Values.memorySource | quote }}
+            - name: BASELINE_MCP_HTTP
+              value: "true"
+            {{- range $k, $v := .Values.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "baseline.secretName" . }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelay | default 10 }}
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelay | default 5 }}
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: baseline
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: baseline
+    app.kubernetes.io/instance: {{ .Release.Name }}

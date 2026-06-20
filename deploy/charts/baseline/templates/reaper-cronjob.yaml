@@ -1,0 +1,37 @@
+{{- if .Values.reaper.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "baseline.fullname" . }}-reaper
+  labels:
+    {{- include "baseline.labels" . | nindent 4 }}
+    app.kubernetes.io/name: baseline-reaper
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: reaper
+spec:
+  schedule: {{ .Values.reaper.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: reaper
+              image: {{ include "baseline.image" (dict "image" .Values.image "global" .Values.image "chart" .Chart) }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              env:
+                - name: BASELINE_REAP
+                  value: "true"
+                - name: MEMORY_SOURCE
+                  value: {{ .Values.memorySource | quote }}
+              envFrom:
+                - secretRef:
+                    name: {{ include "baseline.secretName" . }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              resources:
+                {{- toYaml .Values.reaper.resources | nindent 16 }}
+{{- end }}

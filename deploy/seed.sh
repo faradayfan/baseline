@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#
+# seed.sh — seed a namespace + role grants on the DEPLOYED Baseline (Pi cluster),
+# emulating org onboarding. Runs psql inside the in-cluster Postgres pod via
+# kubectl exec (the DB is ClusterIP-only, not exposed on the LAN).
+#
+# Usage:
+#   ./deploy/seed.sh                       # grants 'john' reader+contributor+reviewer on org
+#   PRINCIPAL=alice ./deploy/seed.sh       # different principal
+#   CONTEXT=k3s NAMESPACE=baseline ./deploy/seed.sh
+#
+# Add a teammate as reviewer (to exercise the full propose->approve loop without
+# hitting separation-of-duties):
+#   PRINCIPAL=reviewer-bob ROLES=reviewer ./deploy/seed.sh
+
+set -euo pipefail
+
+CONTEXT="${CONTEXT:-k3s}"
+NAMESPACE="${NAMESPACE:-baseline}"
+PRINCIPAL="${PRINCIPAL:-john}"
+ROLES="${ROLES:-reader contributor reviewer}"
+PG_USER="${PG_USER:-baseline}"
+PG_DB="${PG_DB:-baseline}"
+
+kc() { kubectl --context "$CONTEXT" -n "$NAMESPACE" "$@"; }
+
+echo "==> finding the Postgres pod"
+POD=$(kc get pod -l app.kubernetes.io/name=postgres -o jsonpath='{.items[0].metadata.name}')
+echo "    $POD"
+
+# Build the role-grant VALUES list.
+ROLE_ARRAY=$(printf "'%s'," $ROLES); ROLE_ARRAY="ARRAY[${ROLE_ARRAY%,}]"
+
+echo "==> seeding org namespace + granting '$PRINCIPAL' [$ROLES] + a sample fact"
+kc exec -i "$POD" -- psql -U "$PG_USER" -d "$PG_DB" >/dev/null <<SQL
+INSERT INTO namespaces (name, kind, policy)
+VALUES ('org', 'org', '{"required_approvals":1}')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO memberships (principal, namespace_id, role)
+SELECT '${PRINCIPAL}', id, r FROM namespaces n, unnest(${ROLE_ARRAY}) AS r
+WHERE n.name = 'org'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO facts (namespace_id, statement, subject, canonical_key, status, tags, created_by, valid_from)
+SELECT id, 'All production deploys must go through CI.',
+       '{"type":"deploy.policy","scope":"global"}'::jsonb, 'deploy.policy:global',
+       'active', '{}', 'seed', now()
+FROM namespaces WHERE name='org'
+ON CONFLICT DO NOTHING;
+SQL
+
+echo "==> summary"
+kc exec -i "$POD" -- psql -U "$PG_USER" -d "$PG_DB" -tc \
+  "SELECT '  namespaces: '||count(*) FROM namespaces
+   UNION ALL SELECT '  grants for ${PRINCIPAL}: '||count(*) FROM memberships WHERE principal='${PRINCIPAL}'
+   UNION ALL SELECT '  active facts: '||count(*) FROM facts WHERE status='active';"
+
+echo
+echo "Done. Point your Claude MCP config at http://<BASELINE_LB_IP>:8080/mcp with"
+echo "header X-Baseline-Principal: ${PRINCIPAL} (see RUNNING.md 'Remote' section)."

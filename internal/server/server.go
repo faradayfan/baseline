@@ -73,12 +73,21 @@ func NewWithMemory(pool *pgxpool.Pool, auth Authenticator, mem memory.Source) *S
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 
+	// Liveness: the process is up. Deliberately does NOT touch the DB — a
+	// transient DB blip should not cause k8s to kill and restart the pod.
 	r.Get("/healthz", func(w http.ResponseWriter, req *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	// Readiness: the service can serve requests, i.e. the DB is reachable. k8s
+	// gates traffic on this, so a DB outage takes the pod out of rotation
+	// (rather than killing it).
+	r.Get("/readyz", func(w http.ResponseWriter, req *http.Request) {
 		if err := s.pool.Ping(req.Context()); err != nil {
-			writeError(w, http.StatusServiceUnavailable, "unhealthy")
+			writeError(w, http.StatusServiceUnavailable, "not ready")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
 
 	r.Route("/v1", func(r chi.Router) {

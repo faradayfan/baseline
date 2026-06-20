@@ -1,0 +1,102 @@
+# Base values (development defaults). Environment overlays live in
+# deploy/<env>/values.yaml and override these.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  registry: ""          # empty for local; Pi overlay sets the in-cluster registry
+  repository: baseline   # bare repo → gets the registry prefixed (see _helpers)
+  tag: "dev"
+  pullPolicy: IfNotPresent
+
+# memorySource selects the memory backend: none (standards-only) | mem0.
+memorySource: none
+
+# Extra plain env vars for the server (non-secret).
+env: {}
+
+service:
+  type: LoadBalancer
+  port: 8080
+  annotations: {}        # Pi overlay adds the MetalLB loadBalancerIPs annotation
+
+probes:
+  initialDelay: 5
+
+# Distroless nonroot (uid 65532), read-only root, no extra caps — matches the
+# cluster security convention.
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# Postgres via the Bitnami postgresql subchart (aliased "postgres"). The image is
+# a custom build (deploy/postgres/Dockerfile) = Bitnami base + pgvector, so the
+# subchart's NFS/volume-permissions handling works AND `CREATE EXTENSION vector`
+# is available. Overlays set image.registry/repository/tag to the cluster build.
+postgres:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql   # dev fallback (no pgvector); overlays point at the custom image
+    tag: "16"
+  # The custom/legacy images aren't Bitnami-signed; skip the signature check.
+  global:
+    security:
+      allowInsecureImages: true
+  auth:
+    username: baseline
+    password: baseline       # dev default; prod supplies secrets.existingSecret
+    database: baseline
+    postgresPassword: postgres
+  primary:
+    persistence:
+      enabled: true
+      size: 2Gi
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+    # Create the pgvector extension at init time. CREATE EXTENSION requires
+    # superuser, but Bitnami runs *.sql initdb scripts as the (non-super) app
+    # user POSTGRESQL_USERNAME — so a .sql script fails with 42501. A *.sh script
+    # can instead connect explicitly as the `postgres` superuser via
+    # POSTGRES_PASSWORD. The app's `CREATE EXTENSION IF NOT EXISTS vector`
+    # (migration 00001) then no-ops. (Confirmed: bitnami/containers#30065.)
+    initdb:
+      scripts:
+        00-pgvector.sh: |
+          #!/bin/bash
+          set -e
+          # Bitnami exposes POSTGRESQL_* vars (POSTGRESQL_POSTGRES_PASSWORD is the
+          # superuser password; POSTGRESQL_DATABASE is the app DB). Connect as the
+          # postgres superuser to create the extension in the app database.
+          PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 \
+            --username postgres --dbname "$POSTGRESQL_DATABASE" \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# Staleness reaper as a CronJob (active facts past valid_to → expired).
+reaper:
+  enabled: true
+  schedule: "*/15 * * * *"
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# Mem0 memory backend — disabled in Phase 1 (facts-only). Phase 2 enables this
+# and points MEM0_URL at the in-cluster Mem0 Service.
+mem0:
+  enabled: false
+  url: ""
+
+secrets:
+  existingSecret: ""      # prod: name of a pre-created Secret with DATABASE_URL

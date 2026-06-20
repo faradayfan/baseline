@@ -90,14 +90,28 @@ func main() {
 		return
 	}
 
+	// Compose the top-level handler: the REST API (incl. /healthz, /readyz) plus,
+	// when enabled, the MCP-over-HTTP transport mounted at /mcp so remote clients
+	// can connect over the network (per-request principal from the header).
+	restHandler := app.Handler()
+	var topHandler http.Handler = restHandler
+	mcpHTTP := os.Getenv("BASELINE_MCP_HTTP") == "true"
+	if mcpHTTP {
+		mux := http.NewServeMux()
+		mux.Handle("/mcp", mcpbridge.HTTPHandler(restHandler))
+		mux.Handle("/mcp/", mcpbridge.HTTPHandler(restHandler))
+		mux.Handle("/", restHandler)
+		topHandler = mux
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           app.Handler(),
+		Handler:           topHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	go func() {
-		log.Info("listening", "addr", cfg.Addr, "memory_source", cfg.MemorySource)
+		log.Info("listening", "addr", cfg.Addr, "memory_source", cfg.MemorySource, "mcp_http", mcpHTTP)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("serve", "err", err)
 			os.Exit(1)

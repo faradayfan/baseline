@@ -1,0 +1,16 @@
+# Docker Desktop Kubernetes overlay.
+# LoadBalancer binds to localhost; no registry prefix (images loaded into the node).
+
+image:
+  registry: ""
+  tag: dev
+  pullPolicy: IfNotPresent
+
+memorySource: none
+
+postgres:
+  primary:
+    persistence:
+      size: 1Gi   # default storage class on Docker Desktop
+
+# Reaper still runs; default schedule is fine.
