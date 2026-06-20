@@ -12,8 +12,12 @@ append-only audit, and the full promotions workflow with facts/promotions HTTP e
 tests; §14 invariants 1,5,6,7,8,10,16,17 are covered. **M2a is also complete**: the pluggable,
 versioned auto-promote engine (`internal/autopromote` port + registry, `simple/v1` engine), wired
 into the propose path and the namespace policy-validation path — §14 11–15 covered (fail-closed,
-attribution, determinism, version isolation, invalid-policy rejection). Next up: M3 (`/context`
-resolver + MemorySource adapters). The plan lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
+attribution, determinism, version isolation, invalid-policy rejection). **M3 is also complete**: the
+`MemorySource` port (`internal/memory`) with `null` (standards-only) and `mem0` adapters, the
+embedder client (`internal/embed`, with the dims guard), and the `/context` resolver
+(`internal/contextsvc`) + `GET /v1/context` handler — §14 3,4,9 and the §11.2 standards-only
+coupling guarantee covered. Next up: M4 (MCP bridge), M5 (reaper + OTEL), M6 (conformance). The plan
+lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
 v1 decisions decided). Read it before implementing anything; the decisions in §18 are settled — do

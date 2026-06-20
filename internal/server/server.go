@@ -8,7 +8,10 @@ import (
 
 	"github.com/faradayfan/baseline/internal/autopromote"
 	"github.com/faradayfan/baseline/internal/autopromote/simple"
+	"github.com/faradayfan/baseline/internal/contextsvc"
 	"github.com/faradayfan/baseline/internal/facts"
+	"github.com/faradayfan/baseline/internal/memory"
+	"github.com/faradayfan/baseline/internal/memory/null"
 	"github.com/faradayfan/baseline/internal/namespaces"
 	"github.com/faradayfan/baseline/internal/promotions"
 	"github.com/faradayfan/baseline/internal/rbac"
@@ -21,15 +24,22 @@ type Server struct {
 	rbac     *rbac.Repo
 	promos   *promotions.Service
 	factsSvc *facts.Service
+	context  *contextsvc.Service
 	engines  *autopromote.Registry
 	auth     Authenticator
 }
 
-// New constructs a Server from a pool and an authenticator. The authenticator is
-// injected so tests can supply HeaderAuthenticator and production can supply
-// OIDC/mTLS without changing handler code. The auto-promote registry is built
-// here with the engines this build ships (currently simple/v1).
+// New constructs a Server with the null memory source (standards-only). Use
+// NewWithMemory to supply a real backend. The authenticator is injected so tests
+// use HeaderAuthenticator and production uses OIDC/mTLS without handler changes.
 func New(pool *pgxpool.Pool, auth Authenticator) *Server {
+	return NewWithMemory(pool, auth, null.New())
+}
+
+// NewWithMemory constructs a Server with an explicit memory.Source (selected
+// from MEMORY_SOURCE at startup). The auto-promote registry is built here with
+// the engines this build ships (currently simple/v1).
+func NewWithMemory(pool *pgxpool.Pool, auth Authenticator, mem memory.Source) *Server {
 	nsRepo := namespaces.NewRepo(pool)
 	engines := autopromote.NewRegistry(simple.New())
 	return &Server{
@@ -38,6 +48,7 @@ func New(pool *pgxpool.Pool, auth Authenticator) *Server {
 		rbac:     rbac.NewRepo(pool),
 		promos:   promotions.NewService(pool, nsRepo, engines),
 		factsSvc: facts.NewService(pool),
+		context:  contextsvc.NewService(pool, mem),
 		engines:  engines,
 		auth:     auth,
 	}
@@ -86,6 +97,8 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/{id}/history", s.getFactHistory)
 			r.Patch("/{id}", s.revokeFact)
 		})
+
+		r.Get("/context", s.getContext)
 	})
 
 	return r
