@@ -12,21 +12,20 @@
     "backend_url": {
       "type": "string",
       "title": "Baseline URL",
-      "description": "Your Baseline deployment, e.g. https://baseline.acme.com (no trailing slash)",
-      "required": true
+      "description": "Your Baseline deployment, e.g. https://baseline.acme.com (no trailing slash). Defaults to a local POC backend.",
+      "default": "http://localhost:8080"
     },
     "principal": {
       "type": "string",
       "title": "Your principal / identity",
       "description": "Your Baseline actor id (e.g. your email). Sent as X-Baseline-Principal. Dev/POC identity; real deployments resolve this from OIDC.",
-      "required": true
+      "default": "local-dev"
     },
     "api_token": {
       "type": "string",
       "title": "API token (optional)",
       "description": "Bearer token, if your Baseline requires auth. Leave blank for the open dev/POC deployment.",
-      "sensitive": true,
-      "required": false
+      "sensitive": true
     }
   }
 }

@@ -13,7 +13,16 @@ url="${CLAUDE_PLUGIN_OPTION_BACKEND_URL:-${BASELINE_CONTEXT_URL:-}}"
 principal="${CLAUDE_PLUGIN_OPTION_PRINCIPAL:-${BASELINE_PRINCIPAL:-}}"
 token="${CLAUDE_PLUGIN_OPTION_API_TOKEN:-${BASELINE_API_TOKEN:-}}"
 
-[ -n "$url" ] || exit 0
+# Self-explain when truly unconfigured. With the plugin's userConfig defaults
+# this should never happen (backend_url defaults to http://localhost:8080) — but
+# if the install-time prompt was skipped AND no default applied AND no legacy env
+# var is set, the URL is empty. Tell the user why nothing is injected, via stderr
+# (visible to the user; does NOT enter the model's context on every turn), then
+# exit cleanly so the prompt is never blocked.
+if [ -z "$url" ]; then
+  echo "Baseline plugin: no backend_url configured — context injection is off. Set it in /plugin config (baseline), or see plugin/README.md → 'If the config prompt didn't fire'." >&2
+  exit 0
+fi
 command -v curl >/dev/null 2>&1 || exit 0
 
 # Optional bearer auth (real deployments); omitted for the open dev/POC. Build

@@ -24,17 +24,24 @@ url="${CLAUDE_PLUGIN_OPTION_BACKEND_URL:-${BASELINE_CONTEXT_URL:-}}"
 principal="${CLAUDE_PLUGIN_OPTION_PRINCIPAL:-${BASELINE_PRINCIPAL:-}}"
 token="${CLAUDE_PLUGIN_OPTION_API_TOKEN:-${BASELINE_API_TOKEN:-}}"
 
-[ -n "$url" ] || exit 0
 command -v curl >/dev/null 2>&1 || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-# --- opt-in gate ---------------------------------------------------------------
+# --- opt-in gate (checked FIRST, so the not-configured notice below only fires
+# in repos that actually opted into capture — not every repo) -------------------
 project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
 capture_on=""
 case "${BASELINE_CAPTURE:-}" in 1|true|TRUE|yes|YES) capture_on=1 ;; esac
 [ -f "$project_dir/.baseline-capture" ] && capture_on=1
 [ -n "$capture_on" ] || exit 0
 # ------------------------------------------------------------------------------
+
+# Opted into capture but no backend configured → self-explain (stderr, visible to
+# user, doesn't enter context), then exit cleanly. Defaults should prevent this.
+if [ -z "$url" ]; then
+  echo "Baseline plugin: capture is enabled here but no backend_url is configured — [remember: …] tags can't be saved. Set it in /plugin config (baseline), or see plugin/README.md." >&2
+  exit 0
+fi
 
 event="$(cat)"
 

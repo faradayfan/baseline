@@ -26,14 +26,41 @@ It bundles three things:
 
 On enable you're prompted once for:
 
-| Config | Example | Notes |
-| ------ | ------- | ----- |
-| **Baseline URL** | `https://baseline.acme.com` | your deployment, no trailing slash |
-| **Your principal** | `jane@acme.com` | sent as `X-Baseline-Principal` (dev identity; real deploys use OIDC) |
-| **API token** *(optional)* | — | bearer token if your Baseline requires auth; blank for the open dev/POC |
+| Config | Example | Default | Notes |
+| ------ | ------- | ------- | ----- |
+| **Baseline URL** | `https://baseline.acme.com` | `http://localhost:8080` | your deployment, no trailing slash |
+| **Your principal** | `jane@acme.com` | `local-dev` | sent as `X-Baseline-Principal` (dev identity; real deploys use OIDC) |
+| **API token** *(optional)* | — | — | bearer token if your Baseline requires auth; blank for the open dev/POC |
 
-Then `/reload-plugins` (or restart) to activate. Context injection starts
-immediately; the MCP tools appear in the tool list.
+The defaults make a **local POC** (`make local-up`, backend on `localhost:8080`)
+work with no answers at all. **Org users** override the URL with their deployment.
+
+Then reload (restart the session, or `/reload-plugins` if your client has it) to
+activate. Context injection starts immediately; the MCP tools appear in the tool list.
+
+### If the config prompt didn't fire
+
+The `userConfig` prompt fires on the plugin's *enable* transition. Some clients
+(notably older VS Code extension builds) don't always surface it, leaving the
+plugin enabled-but-unconfigured — the MCP server then can't connect (its URL is an
+unsubstituted `${user_config.backend_url}`) and the hooks print a one-line notice
+on stderr. The defaults above usually prevent this; if you still hit it, set the
+config by hand in `~/.claude/settings.json` (the documented storage location) and
+reload your client:
+
+```json
+{
+  "pluginConfigs": {
+    "baseline@baseline": {
+      "options": { "backend_url": "http://localhost:8080", "principal": "local-dev" }
+    }
+  }
+}
+```
+
+Use your real deployment URL + identity for a hosted Baseline. `api_token` is
+`sensitive`, so it is **not** stored here — it goes to the system keychain; leave
+it out of this file (the open dev/POC needs no token).
 
 ## Opting in to memory capture
 
