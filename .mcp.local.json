@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "baseline": {
+      "command": "/Users/john/faradayfan/baseline/bin/baseline",
+      "args": [],
+      "env": {
+        "DATABASE_URL": "postgres://baseline:baseline@localhost:5433/baseline?sslmode=disable",
+        "MEMORY_SOURCE": "none",
+        "BASELINE_MCP_STDIO": "true",
+        "BASELINE_MCP_PRINCIPAL": "local-dev"
+      }
+    }
+  }
+}
