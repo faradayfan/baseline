@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-This is a **greenfield repository**. There is no code yet — only [docs/SPEC.md](docs/SPEC.md)
-(the full design) and a placeholder README. There is no Go module, no build, and no tests.
-When you implement, you are bootstrapping the structure described below, not modifying existing code.
+Implementation is **in progress**, built milestone by milestone (spec §17). **M0 is complete**:
+Go module, config/logging (`internal/platform`), Postgres+pgvector store with embedded goose
+migrations (`internal/store`), the full §12 schema, and the namespaces registry/policy/CRUD
+(`internal/namespaces`) — all with unit and integration tests. Next up: M1 (RBAC + entitlements +
+auth middleware). The plan lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
 v1 decisions decided). Read it before implementing anything; the decisions in §18 are settled — do
@@ -22,14 +24,29 @@ Baseline answers "what does the org officially know, who vouched for it, is it s
 It is a stateless Go service. Source of truth for facts and governance state is **its own**
 Postgres DB (`baseline`) with pgvector; memories stay in Mem0 and are read at request time.
 
-## Planned tech stack & commands
+## Tech stack & commands
 
-Per spec §15 (none of this exists yet — these are the intended choices):
-
-- **Go**, feature-first layout under `internal/`.
-- **Postgres + pgvector**, separate DB `baseline`. Migrations via **goose or golang-migrate**.
-- **HTTP**: stdlib `net/http` + chi. **OpenAPI spec authored first** (`api/openapi.yaml`).
+- **Go** (1.26.4, pinned via asdf in `.tool-versions`), feature-first layout under `internal/`.
+- **Postgres + pgvector**, separate DB `baseline`. Migrations via **goose** (embedded in
+  `internal/store`, run automatically at startup).
+- **HTTP**: stdlib `net/http` + **chi**. DB driver **pgx/v5** + `pgxpool`. **OpenAPI spec
+  authored first** (`api/openapi.yaml`) before M2 handlers.
 - **Embeddings**: Ollama via `EMBEDDER_URL` (default `nomic-embed-text`, **768 dims**).
+
+Commands:
+
+- `go build ./...`, `go vet ./...`
+- `go test -short ./...` — unit tests only, no Docker (use while iterating).
+- `go test ./...` — full suite incl. integration; needs Docker for the pgvector testcontainer.
+- `go test -run TestName ./internal/<pkg>` — a single test.
+
+### Testing is mandatory per feature
+
+See [TESTING.md](TESTING.md). Every feature ships **unit + integration tests**, and integration
+includes **API tests** (real chi router + DB behind `httptest`) for anything over HTTP. The shared
+harness is `internal/storetest` (one pgvector container per package via `storetest.Main` in
+`TestMain`; `Tx`/`FreshDB`/`NewAPI` helpers). A milestone is done only when its tests — including the
+relevant §14 conformance invariants — are green.
 - Once a Go module exists, expect the standard `go build ./...`, `go test ./...`,
   `go test -run TestName ./pkg` (single test), `go vet ./...` / `golangci-lint run`.
 
