@@ -1,0 +1,354 @@
+openapi: 3.1.0
+info:
+  title: Baseline — Facts Management Service
+  version: "0.1.0"
+  description: >
+    Governance layer that promotes raw memories into curated, reviewed facts in
+    shared namespaces. See docs/SPEC.md. AuthN is OIDC bearer or mTLS in
+    production; the principal is resolved server-side. (In dev/tests the
+    HeaderAuthenticator reads X-Baseline-Principal / X-Baseline-Platform-Admin.)
+
+servers:
+  - url: /v1
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: namespaces
+  - name: promotions
+  - name: facts
+  - name: context
+
+paths:
+  /namespaces:
+    get:
+      tags: [namespaces]
+      summary: List namespaces the caller can read
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Namespace" } } } } }
+    post:
+      tags: [namespaces]
+      summary: Create a namespace (platform_admin only)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/NamespaceCreate" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Namespace" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /namespaces/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [namespaces]
+      summary: Get a namespace (requires read entitlement)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Namespace" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [namespaces]
+      summary: Update namespace policy (namespace_admin). Auto-promote policy is validated against the pinned engine.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/Policy" } } }
+      responses:
+        "200": { description: Updated }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /namespaces/{id}/members:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [namespaces]
+      summary: List members (requires read entitlement)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Member" } } } } }
+    post:
+      tags: [namespaces]
+      summary: Grant a role (namespace_admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/Member" } } }
+      responses:
+        "201": { description: Created }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /namespaces/{id}/members/{principal}:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+      - { name: principal, in: path, required: true, schema: { type: string } }
+      - { name: role, in: query, required: true, schema: { $ref: "#/components/schemas/Role" } }
+    delete:
+      tags: [namespaces]
+      summary: Revoke a role (namespace_admin)
+      responses:
+        "200": { description: Revoked }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /promotions:
+    post:
+      tags: [promotions]
+      summary: Propose a fact for promotion (contributor+). Idempotent via Idempotency-Key.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ProposeRequest" } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Promotion" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    get:
+      tags: [promotions]
+      summary: Inbox — list promotions (scoped to readable namespaces)
+      parameters:
+        - { name: namespace, in: query, schema: { type: string, format: uuid } }
+        - { name: state, in: query, schema: { $ref: "#/components/schemas/PromotionState" } }
+        - { name: proposer, in: query, schema: { type: string }, description: "use 'me' for the caller" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Promotion" } } } } }
+
+  /promotions/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [promotions]
+      summary: Get a promotion (requires read entitlement on its namespace)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Promotion" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # Review/lifecycle actions. The spec writes these as {id}:action; chi serves the
+  # equivalent {id}/action path segments.
+  /promotions/{id}/submit:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post: { tags: [promotions], summary: Submit for review (proposer), responses: { "200": { description: OK }, "409": { $ref: "#/components/responses/Conflict" } } }
+  /promotions/{id}/approve:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      tags: [promotions]
+      summary: Approve (reviewer; not the proposer — separation of duties)
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/Comment" } } } }
+      responses: { "200": { description: OK }, "403": { $ref: "#/components/responses/Forbidden" }, "409": { $ref: "#/components/responses/Conflict" } }
+  /promotions/{id}/reject:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post: { tags: [promotions], summary: Reject (reviewer), requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/Comment" } } } }, responses: { "200": { description: OK } } }
+  /promotions/{id}/request-changes:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post: { tags: [promotions], summary: Request changes (reviewer), requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/RequestChanges" } } } }, responses: { "200": { description: OK } } }
+  /promotions/{id}/withdraw:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post: { tags: [promotions], summary: Withdraw (proposer only), responses: { "200": { description: OK }, "403": { $ref: "#/components/responses/Forbidden" } } }
+
+  /facts:
+    get:
+      tags: [facts]
+      summary: List/search facts (scoped to readable namespaces)
+      parameters:
+        - { name: namespace, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/FactStatus" } }
+        - { name: canonical_key, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string }, description: substring over statement }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Fact" } } } } }
+
+  /facts/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [facts]
+      summary: Get a fact. Returns ETag (version) for optimistic concurrency.
+      responses:
+        "200":
+          description: OK
+          headers: { ETag: { schema: { type: string }, description: fact version } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Fact" } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [facts]
+      summary: Revoke an active fact (reviewer). Requires If-Match (version); stale → 409.
+      parameters:
+        - { name: If-Match, in: header, required: true, schema: { type: string }, description: fact version }
+      responses:
+        "200": { description: Revoked }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "428": { description: If-Match required }
+
+  /facts/{id}/history:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [facts]
+      summary: Audit trail / lineage for a fact
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/AuditEvent" } } } } }
+
+  /context:
+    get:
+      tags: [context]
+      summary: Agent read path — precedence-resolved facts (+ optional memories)
+      parameters:
+        - { name: actor_id, in: query, schema: { type: string } }
+        - { name: namespaces, in: query, schema: { type: string }, description: comma-separated ids; intersected with entitlements }
+        - { name: include_memories, in: query, schema: { type: boolean } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/ContextItem" } } } } }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+
+  responses:
+    BadRequest: { description: Bad request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Forbidden: { description: Forbidden, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    NotFound: { description: Not found, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Conflict: { description: Conflict (stale version or illegal state), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  schemas:
+    Error:
+      type: object
+      properties: { error: { type: string } }
+
+    Role:
+      type: string
+      enum: [reader, contributor, reviewer, namespace_admin]
+
+    NamespaceKind:
+      type: string
+      enum: [user, team, project, org]
+
+    PromotionState:
+      type: string
+      enum: [pending, in_review, changes_requested, approved, rejected]
+
+    FactStatus:
+      type: string
+      enum: [proposed, in_review, active, superseded, revoked, expired, rejected]
+
+    AutoPromote:
+      type: object
+      properties:
+        engine: { type: string, example: "simple/v1" }
+        rules: { type: object, description: engine-specific; validated by the pinned engine }
+
+    Policy:
+      type: object
+      properties:
+        required_approvals: { type: integer }
+        allowed_proposers: { type: array, items: { type: string } }
+        auto_promote: { $ref: "#/components/schemas/AutoPromote" }
+
+    Namespace:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/NamespaceKind" }
+        parent_id: { type: string, format: uuid, nullable: true }
+        policy: { $ref: "#/components/schemas/Policy" }
+        created_at: { type: string, format: date-time }
+
+    NamespaceCreate:
+      type: object
+      required: [name, kind]
+      properties:
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/NamespaceKind" }
+        parent_id: { type: string, format: uuid, nullable: true }
+        policy: { $ref: "#/components/schemas/Policy" }
+
+    Member:
+      type: object
+      required: [principal, role]
+      properties:
+        principal: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+
+    Subject:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, description: dotted category, lower-case }
+        scope: { type: string, description: defaults to "global" }
+        qualifiers: { type: object, additionalProperties: { type: string } }
+
+    ProposeRequest:
+      type: object
+      required: [target_namespace, subject]
+      properties:
+        target_namespace: { type: string, format: uuid }
+        proposed_statement: { type: string }
+        subject: { $ref: "#/components/schemas/Subject" }
+        candidate_memory_ids: { type: array, items: { type: string } }
+        provenance: { type: object }
+        tags: { type: array, items: { type: string } }
+        metadata: { type: object }
+        origin_type: { type: string, description: provenance.origin_type — engine candidate signal }
+        source_kind: { type: string, description: provenance.source.kind — engine candidate signal }
+        actor_type: { type: string, description: actor.type — engine candidate signal }
+      # NOTE: canonical_key is never accepted from a client; it is derived from subject.
+
+    Promotion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fact_id: { type: string, format: uuid }
+        target_namespace_id: { type: string, format: uuid }
+        proposed_statement: { type: string }
+        state: { $ref: "#/components/schemas/PromotionState" }
+        proposer: { type: string }
+        required_approvals: { type: integer }
+        conflict_with: { type: string, format: uuid, nullable: true }
+        reviews: { type: array, items: { type: object } }
+        created_at: { type: string, format: date-time }
+
+    Fact:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        namespace_id: { type: string, format: uuid }
+        statement: { type: string }
+        subject: { $ref: "#/components/schemas/Subject" }
+        canonical_key: { type: string, description: derived from subject; never client-set }
+        status: { $ref: "#/components/schemas/FactStatus" }
+        tags: { type: array, items: { type: string } }
+        valid_from: { type: string, format: date-time, nullable: true }
+        valid_to: { type: string, format: date-time, nullable: true }
+        supersedes_id: { type: string, format: uuid, nullable: true }
+        superseded_by_id: { type: string, format: uuid, nullable: true }
+        version: { type: integer }
+
+    AuditEvent:
+      type: object
+      properties:
+        principal: { type: string }
+        action: { type: string }
+        subject_type: { type: string }
+        subject_id: { type: string, format: uuid }
+        from_state: { type: string }
+        to_state: { type: string }
+
+    ContextItem:
+      type: object
+      properties:
+        source: { type: string, enum: [fact, memory] }
+        statement: { type: string }
+        namespace_id: { type: string, format: uuid, nullable: true }
+        canonical_key: { type: string }
+        valid_to: { type: string, format: date-time, nullable: true }
+        tags: { type: array, items: { type: string } }
+
+    Comment:
+      type: object
+      properties: { comment: { type: string } }
+
+    RequestChanges:
+      type: object
+      properties:
+        comment: { type: string }
+        suggested_statement: { type: string }

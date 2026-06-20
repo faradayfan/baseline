@@ -14,10 +14,17 @@ import (
 
 type proposeReq struct {
 	TargetNamespace    uuid.UUID         `json:"target_namespace"`
-	ProposedStatement  string            `json:"proposed_statement"`
-	Subject            facts.Subject     `json:"subject"`
-	CandidateMemoryIDs []string          `json:"candidate_memory_ids,omitempty"`
-	Provenance         facts.Provenance  `json:"provenance,omitempty"`
+	ProposedStatement  string           `json:"proposed_statement"`
+	Subject            facts.Subject    `json:"subject"`
+	CandidateMemoryIDs []string         `json:"candidate_memory_ids,omitempty"`
+	Provenance         facts.Provenance `json:"provenance,omitempty"`
+	Tags               []string         `json:"tags,omitempty"`
+	Metadata           map[string]any   `json:"metadata,omitempty"`
+
+	// Candidate signals the auto-promote engine evaluates (§7.4). Optional.
+	OriginType string `json:"origin_type,omitempty"` // provenance.origin_type
+	SourceKind string `json:"source_kind,omitempty"` // provenance.source.kind
+	ActorType  string `json:"actor_type,omitempty"`  // actor.type
 }
 
 // createPromotion handles POST /v1/promotions (§9). Requires contributor+ in the
@@ -38,8 +45,13 @@ func (s *Server) createPromotion(w http.ResponseWriter, r *http.Request) {
 		Subject:            req.Subject,
 		CandidateMemoryIDs: req.CandidateMemoryIDs,
 		Provenance:         req.Provenance,
+		Tags:               req.Tags,
+		Metadata:           req.Metadata,
 		Proposer:           p.ID,
 		IdempotencyKey:     r.Header.Get("Idempotency-Key"),
+		OriginType:         req.OriginType,
+		SourceKind:         req.SourceKind,
+		ActorType:          req.ActorType,
 	})
 	if errors.Is(err, promotions.ErrInvalidSubject) {
 		writeError(w, http.StatusBadRequest, "subject with a type is required")

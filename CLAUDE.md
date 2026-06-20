@@ -4,29 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Implementation is **in progress**, built milestone by milestone (spec §17). **M0–M2 are complete**:
-the Go module + store + namespaces (M0); RBAC, entitlements, and auth middleware (M1,
-`internal/rbac` + `internal/server`); and the facts state machine, canonical-key derivation,
-append-only audit, and the full promotions workflow with facts/promotions HTTP endpoints (M2,
-`internal/facts` + `internal/audit` + `internal/promotions`). All with unit + integration + API
-tests; §14 invariants 1,5,6,7,8,10,16,17 are covered. **M2a is also complete**: the pluggable,
-versioned auto-promote engine (`internal/autopromote` port + registry, `simple/v1` engine), wired
-into the propose path and the namespace policy-validation path — §14 11–15 covered (fail-closed,
-attribution, determinism, version isolation, invalid-policy rejection). **M3 is also complete**: the
-`MemorySource` port (`internal/memory`) with `null` (standards-only) and `mem0` adapters, the
-embedder client (`internal/embed`, with the dims guard), and the `/context` resolver
-(`internal/contextsvc`) + `GET /v1/context` handler — §14 3,4,9 and the §11.2 standards-only
-coupling guarantee covered. **M4 is also complete**: a `GET /facts` list/search handler plus the MCP
-bridge (`internal/mcpbridge`) exposing the five §9 tools (`get_context`, `search_facts`,
-`propose_fact`, `list_my_promotions`, `review_promotion`) as a *thin* bridge — each tool dispatches a
-synthetic request through the same `server.Handler()` in-process, so authn/RBAC/audit are reused
-verbatim. Uses the official MCP Go SDK; `BASELINE_MCP_STDIO=true` serves it over stdio. **M5 is also
-complete**: the reaper (`internal/reaper`, `active→expired` past `valid_to` with an audit event each,
-run via `BASELINE_REAP=true` as a CronJob) and OTEL observability (`internal/metrics` + the span
-middleware in `internal/platform`) — the five §13 metrics (`promotion_queue_depth{namespace}`,
-`approval_latency_seconds`, `facts_active`, `facts_expiring_24h`, `conflicts_open`) and per-request
-spans. Only **M6** remains: the `test/conformance` suite asserting all 17 §14 invariants against a
-live server, plus `api/openapi.yaml`. The plan lives at
+**All milestones M0–M6 are complete** (spec §17). The full v1 service is implemented with unit +
+integration + API tests, and the `test/conformance` suite asserts all 17 §14 invariants against a
+live server — the build is "on baseline." Packages: `platform` (config/log/OTEL), `store`
+(pgx+goose), `namespaces`, `rbac` + `server` (auth/RBAC/handlers/MCP-bridge wiring), `facts`,
+`audit`, `promotions`, `autopromote` (+`simple`), `memory` (+`mem0`/`null`), `embed`, `contextsvc`,
+`mcpbridge`, `metrics`, `reaper`; the contract is `api/openapi.yaml`; the §14 suite is
+`test/conformance`. The one entrypoint `cmd/baseline` runs HTTP by default, the reaper under
+`BASELINE_REAP=true`, and the MCP bridge under `BASELINE_MCP_STDIO=true`.
+
+What remains is **deferred-by-plan**, not unfinished: Helm packaging (`deploy/`), CI wiring, an OTEL
+exporter (instruments exist; production points `OTEL_*` at the collector), real OIDC/mTLS
+authenticators (the `Authenticator` seam exists; `HeaderAuthenticator` is dev-only), and semantic
+(embedding-ranked) `q` search (`/facts?q=` is substring for now). The plan lives at
 `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
