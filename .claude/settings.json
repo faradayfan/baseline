@@ -10,29 +10,5 @@
       "Bash(kubectl get *)",
       "Bash(kubectl describe *)"
     ]
-  },
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if [ -n \"$BASELINE_CONTEXT_URL\" ]; then body=$(curl -s --max-time 5 \"$BASELINE_CONTEXT_URL/v1/context?include_memories=true\" -H \"X-Baseline-Principal: ${BASELINE_PRINCIPAL:-}\" 2>/dev/null); if [ -n \"$body\" ]; then printf 'Baseline org facts + your memories (source: fact|memory):\\n%s\\n' \"$body\"; fi; fi",
-            "timeout": 8
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/capture-memory.sh",
-            "timeout": 12
-          }
-        ]
-      }
-    ]
   }
 }
