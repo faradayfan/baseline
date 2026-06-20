@@ -1,12 +1,11 @@
-# Raspberry Pi k3s cluster overlay.
-#
-# Cluster facts (shared with the finances deployment):
-#   - kube-context:  k3s
-#   - in-cluster registry: <REGISTRY_HOST>:5000 (MetalLB LB, plain HTTP — `docker
-#     login <REGISTRY_HOST>:5000` once; add it to Docker's "insecure-registries").
-#   - MetalLB pool "home-pool" <FINANCES_LB_IP>-250 (.250=registry, .240=finances).
-#     Baseline takes .241.
-#   - storageClass: nfs-client
+# Raspberry Pi / k3s (ARM) cluster overlay — an EXAMPLE remote deployment.
+# Replace the placeholders below with your own cluster's values:
+#   - <REGISTRY_HOST>  an in-cluster (or external) image registry host/IP. If it's
+#     a plain-HTTP registry, `docker login <REGISTRY_HOST>:5000` once and add it to
+#     Docker's "insecure-registries".
+#   - <BASELINE_LB_IP> the LoadBalancer IP to pin for the Baseline service (e.g.
+#     from a MetalLB pool <METALLB_POOL>).
+#   - kube-context: k3s · storageClass: nfs-client (adjust to your cluster).
 #
 # image.tag is supplied at deploy time as the git short SHA (--set-string image.tag=...).
 

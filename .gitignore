@@ -13,3 +13,7 @@ deploy/charts/baseline/*.tgz
 
 # Personal Claude Code settings (cluster URL, principal)
 .claude/settings.local.json
+
+# Local MCP configs (use the plugin instead; these leak local paths)
+.mcp.json
+.mcp.*.json

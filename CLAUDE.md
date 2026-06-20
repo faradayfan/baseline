@@ -25,7 +25,7 @@ See [RUNNING.md](RUNNING.md).
 What remains **deferred-by-plan**, not unfinished: CI wiring, an OTEL exporter (instruments exist;
 production points `OTEL_*` at the collector), real OIDC/mTLS authenticators (the `Authenticator` seam
 exists; `HeaderAuthenticator` is dev-only), and semantic (embedding-ranked) `q` search (`/facts?q=`
-is substring for now). The plan lives at `/Users/john/.claude/plans/shiny-jingling-gizmo.md`.
+is substring for now).
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
 v1 decisions decided). Read it before implementing anything; the decisions in §18 are settled — do
