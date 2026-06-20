@@ -71,5 +71,13 @@ psql_pod -tc \
    UNION ALL SELECT '  active facts: '||count(*) FROM facts WHERE status='active';"
 
 echo
-echo "Done. Point your Claude MCP config at http://<BASELINE_LB_IP>:8080/mcp with"
-echo "header X-Baseline-Principal: ${PRINCIPAL} (see RUNNING.md 'Remote' section)."
+# URL hint depends on where this was seeded: localhost for Docker Desktop, the
+# MetalLB IP for the Pi cluster. Override with BASELINE_URL if needed.
+if [ -z "${BASELINE_URL:-}" ]; then
+  case "$CONTEXT" in
+    docker-desktop) BASELINE_URL="http://localhost:8080" ;;
+    *)              BASELINE_URL="http://<BASELINE_LB_IP>:8080" ;;
+  esac
+fi
+echo "Done. Point your Claude MCP config at ${BASELINE_URL}/mcp with"
+echo "header X-Baseline-Principal: ${PRINCIPAL} (see RUNNING.md)."

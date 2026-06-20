@@ -87,6 +87,67 @@ claude mcp add baseline /ABSOLUTE/PATH/TO/baseline/bin/baseline \
   -e MEMORY_SOURCE=none -e BASELINE_MCP_STDIO=true -e BASELINE_MCP_PRINCIPAL=local-dev
 ```
 
+## Local cluster (Docker Desktop Kubernetes)
+
+Run the **full stack** — Baseline + Mem0 + Neo4j + the fact/memory merge — on
+Docker Desktop's built-in Kubernetes, with **Ollama running natively on macOS**
+for GPU speed. Fully self-hosted, **no vendor API keys**, and fast (memory-add is
+~1s on Apple Silicon vs. minutes on a Pi CPU).
+
+**Why Ollama on the host, not in a container:** Docker Desktop's Linux VM has no
+GPU passthrough, so a containerized Ollama is CPU-only (slow). Native `ollama
+serve` uses Metal/GPU; pods reach it at `host.docker.internal:11434`.
+
+### One-time host setup
+
+```bash
+# Enable Kubernetes in Docker Desktop settings (context: docker-desktop).
+brew install ollama
+ollama serve &                    # runs the host Ollama service (GPU)
+ollama pull qwen2.5:3b            # LLM for memory extraction
+ollama pull nomic-embed-text     # embedder (768 dims)
+```
+
+### Bring it up
+
+```bash
+make local-up      # builds 3 images, loads them into the node, helm installs
+kubectl --context docker-desktop -n baseline get pods -w
+```
+
+Baseline is reachable at **`http://localhost:8080`** (Docker Desktop binds the
+`LoadBalancer` service to localhost — no MetalLB, no port-forward). Images are
+built locally and imported into the node's containerd, so there's no registry.
+
+### Seed + demo
+
+```bash
+make local-seed                              # CONTEXT=docker-desktop ./deploy/seed.sh
+
+# add a personal memory (GPU-fast extraction via host Ollama):
+API=$(kubectl --context docker-desktop -n baseline get pod -l app.kubernetes.io/name=mem0-api \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl --context docker-desktop -n baseline exec "$API" -- python3 -c "
+import urllib.request, json
+req = urllib.request.Request('http://localhost:8000/memories',
+  data=json.dumps({'messages':[{'role':'user','content':'I prefer to deploy on Fridays.'}],'user_id':'john'}).encode(),
+  headers={'Content-Type':'application/json'}, method='POST')
+print(urllib.request.urlopen(req, timeout=120).read().decode())"
+
+# the merge, fully local + keyless:
+curl -s "http://localhost:8080/v1/context?include_memories=true&actor_id=john" \
+  -H 'X-Baseline-Principal: john' | python3 -m json.tool
+```
+
+Point your `.mcp.json` (or the hook's `BASELINE_CONTEXT_URL`) at
+`http://localhost:8080` — same shape as the remote, just localhost. Tear down with
+`make local-down` (add `CLEAN=1` to drop PVCs).
+
+> If memory adds return `"results": []`, check `kubectl logs` for the mem0-api pod.
+> A `expected 1536 dimensions, not 768` error means the pgvector collection was
+> created at the OpenAI size — drop it (`DROP TABLE memories;` in mem0-postgres)
+> and re-add; the patched image creates it at 768 to match nomic-embed-text.
+
 ## Remote (Raspberry Pi k3s cluster)
 
 This deploys Baseline centrally and connects a local Claude to it over the

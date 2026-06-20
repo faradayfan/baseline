@@ -1,0 +1,61 @@
+# Docker Desktop Kubernetes overlay (local Mac dev).
+#
+#   - LoadBalancer services bind to localhost (Docker Desktop), no MetalLB.
+#   - Images are built locally and loaded into the node's containerd (no registry),
+#     so registry == "" and tags are bare.
+#   - Mem0 uses Ollama running NATIVELY on the Mac (GPU/Metal) via
+#     host.docker.internal — fully self-hosted, no vendor keys, and FAST (unlike
+#     the Pi CPU path). Host prereq: `ollama serve` + `ollama pull qwen2.5:3b`
+#     + `ollama pull nomic-embed-text`.
+
+image:
+  registry: ""
+  repository: baseline
+  tag: dev
+  pullPolicy: IfNotPresent
+
+memorySource: mem0
+
+service:
+  type: LoadBalancer   # Docker Desktop binds this to localhost:8080 (no annotation)
+  port: 8080
+
+postgres:
+  # Locally-built custom pgvector image, loaded into the node (no registry prefix).
+  image:
+    registry: ""
+    repository: baseline-postgresql
+    tag: "16-pgvector"
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi          # default storage class on Docker Desktop
+
+mem0:
+  enabled: true
+  # Self-hosted, keyless: no OpenAI. Ollama runs on the host.
+  openaiApiKey: ""
+  ollamaBaseURL: "http://host.docker.internal:11434"
+
+  api:
+    # Locally-built Ollama-patched mem0-api image (deploy/mem0-api, PATCH_OLLAMA=1).
+    image: baseline-mem0-api:ollama
+    pullPolicy: IfNotPresent
+    env:
+      OLLAMA_LLM_MODEL: "qwen2.5:3b"
+      OLLAMA_EMBEDDING_MODEL: "nomic-embed-text"
+      OLLAMA_EMBEDDING_DIMS: "768"
+
+  # No in-cluster Ollama — it runs on the host.
+  ollama:
+    enabled: false
+
+  postgres:
+    image: baseline-postgresql:16-pgvector   # local image (no registry)
+    persistence:
+      size: 1Gi
+
+  neo4j:
+    enabled: true
+    persistence:
+      size: 2Gi

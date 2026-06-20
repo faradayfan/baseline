@@ -32,13 +32,24 @@ NEW_EMBED = (
     '"embedding_dims": int(os.environ.get("OLLAMA_EMBEDDING_DIMS", "768"))}},'
 )
 
+# The pgvector store's embedding_model_dims defaults to 1536 (OpenAI's size). With
+# the Ollama embedder (nomic-embed-text = 768) the table must be created at 768, or
+# inserts fail with "expected 1536 dimensions, not 768". Inject it into the
+# vector_store config (anchored on the stock collection_name line).
+OLD_VS = '            "collection_name": POSTGRES_COLLECTION_NAME,'
+NEW_VS = (
+    '            "collection_name": POSTGRES_COLLECTION_NAME,\n'
+    '            "embedding_model_dims": int(os.environ.get("OLLAMA_EMBEDDING_DIMS", "768")),'
+)
+
 with io.open(PATH, "r", encoding="utf-8") as f:
     src = f.read()
 
 assert OLD_LLM in src, "stock OpenAI llm line not found — upstream image changed; review patch_config.py"
 assert OLD_EMBED in src, "stock OpenAI embedder line not found — upstream image changed; review patch_config.py"
+assert OLD_VS in src, "stock vector_store collection_name line not found — upstream changed; review patch_config.py"
 
-src = src.replace(OLD_LLM, NEW_LLM).replace(OLD_EMBED, NEW_EMBED)
+src = src.replace(OLD_LLM, NEW_LLM).replace(OLD_EMBED, NEW_EMBED).replace(OLD_VS, NEW_VS)
 
 with io.open(PATH, "w", encoding="utf-8") as f:
     f.write(src)

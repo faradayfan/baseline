@@ -2,7 +2,9 @@
 {{- $name := printf "%s-mem0-api" .Release.Name }}
 {{- $pgHost := printf "%s-mem0-postgres" .Release.Name }}
 {{- $neoHost := printf "%s-neo4j" .Release.Name }}
-{{- $ollamaURL := printf "http://%s-ollama:11434" .Release.Name }}
+{{- /* Ollama URL: an explicit mem0.ollamaBaseURL wins (e.g. host.docker.internal
+       for native Ollama on a Docker Desktop Mac); otherwise the in-cluster service. */ -}}
+{{- $ollamaURL := .Values.mem0.ollamaBaseURL | default (printf "http://%s-ollama:11434" .Release.Name) }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -65,8 +67,9 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            {{- if .Values.mem0.ollama.enabled }}
-            # --- self-hosted models via local Ollama ---
+            {{- if or .Values.mem0.ollama.enabled .Values.mem0.ollamaBaseURL }}
+            # Ollama endpoint: in-cluster service (ollama.enabled) or an explicit
+            # external URL (ollamaBaseURL, e.g. host.docker.internal on a Mac).
             - name: OLLAMA_BASE_URL
               value: {{ $ollamaURL | quote }}
             {{- end }}

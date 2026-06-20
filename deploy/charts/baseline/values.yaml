@@ -109,6 +109,12 @@ mem0:
   # so Mem0 uses OpenAI (the stock image's default). Supplied via secrets.
   openaiApiKey: ""
 
+  # Override the Ollama endpoint Mem0 uses. Empty → the in-cluster ollama service
+  # (when mem0.ollama.enabled). Set to an external URL to use Ollama running
+  # elsewhere — e.g. http://host.docker.internal:11434 for native Ollama on a
+  # Docker Desktop Mac (GPU-accelerated; the local overlay uses this).
+  ollamaBaseURL: ""
+
   # Pin heavy workloads to a roomy node (only Neo4j now that Ollama is off).
   nodeSelector: {}
 

@@ -52,6 +52,44 @@ helm-lint: helm-deps ## Lint the chart
 helm-template: ## Render the chart with the Pi overlay
 	helm template baseline $(CHART) -f deploy/pi/values.yaml --set-string image.tag=$(PI_TAG)
 
+## --- Local Docker Desktop Kubernetes ----------------------------------
+# Runs the full stack (Baseline + Mem0 + Neo4j) on Docker Desktop's k8s, with
+# Ollama running NATIVELY on the Mac (GPU) reached via host.docker.internal.
+# Images are built locally and imported into the node's containerd (no registry).
+
+K8S_NODE       ?= desktop-control-plane
+LOCAL_CONTEXT  ?= docker-desktop
+
+.PHONY: local-images
+local-images: ## Build the 3 images and load them into Docker Desktop's node
+	docker build -t baseline:dev .
+	docker build -t baseline-postgresql:16-pgvector deploy/postgres
+	docker build --build-arg PATCH_OLLAMA=1 -t baseline-mem0-api:ollama deploy/mem0-api
+	@for img in baseline:dev baseline-postgresql:16-pgvector baseline-mem0-api:ollama; do \
+	  echo "loading $$img into $(K8S_NODE)..."; \
+	  docker save "$$img" | docker exec -i $(K8S_NODE) ctr -n k8s.io images import - >/dev/null; \
+	done
+
+.PHONY: local-up
+local-up: local-images helm-deps ## Build+load images and install the chart on Docker Desktop
+	@command -v ollama >/dev/null && ollama list 2>/dev/null | grep -q qwen2.5:3b || \
+	  echo "WARN: host Ollama / qwen2.5:3b not found — run: ollama serve; ollama pull qwen2.5:3b; ollama pull nomic-embed-text"
+	helm upgrade --install baseline $(CHART) \
+	  --kube-context $(LOCAL_CONTEXT) -n baseline --create-namespace \
+	  -f deploy/local/values.yaml
+	@echo ""
+	@echo "Installed. Watch: kubectl --context $(LOCAL_CONTEXT) -n baseline get pods -w"
+	@echo "Baseline:    http://localhost:8080  (LoadBalancer -> localhost; no port-forward)"
+
+.PHONY: local-seed
+local-seed: ## Seed org namespace + grants on the local cluster (PRINCIPAL=you)
+	CONTEXT=$(LOCAL_CONTEXT) ./deploy/seed.sh
+
+.PHONY: local-down
+local-down: ## Uninstall the local release (add CLEAN=1 to also delete PVCs)
+	helm --kube-context $(LOCAL_CONTEXT) -n baseline uninstall baseline || true
+	@[ "$(CLEAN)" = "1" ] && kubectl --context $(LOCAL_CONTEXT) -n baseline delete pvc --all || true
+
 ## --- Raspberry Pi cluster ---------------------------------------------
 
 PG_IMAGE := $(PI_REGISTRY)/baseline-postgresql
