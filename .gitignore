@@ -10,3 +10,6 @@ deploy/*/secrets.yaml
 # Helm subchart artifacts (fetched via `helm dependency build`; Chart.lock is committed)
 deploy/charts/baseline/charts/
 deploy/charts/baseline/*.tgz
+
+# Personal Claude Code settings (cluster URL, principal)
+.claude/settings.local.json
