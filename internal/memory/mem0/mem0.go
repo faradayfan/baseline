@@ -93,26 +93,35 @@ func (s Source) Search(ctx context.Context, actorID, query string, opts memory.S
 
 // Add → POST /memories. This is the out-of-band capture path (memory.Writer),
 // NOT part of the read-only Source contract — it exists so the agent harness has
-// a single Baseline URL to post raw memories to. Mem0 runs LLM extraction on the
-// message, so the input text may be rephrased/split; the response is the same
-// {"results":[...]} envelope, and we return the first extracted memory (or a
-// synthetic echo when Mem0 extracted nothing, e.g. a deduped no-op).
-func (s Source) Add(ctx context.Context, actorID, content string, metadata map[string]any) (memory.Memory, error) {
+// a single Baseline URL to post raw memories to.
+//
+// With opts.Infer unset/true Mem0 runs LLM extraction on the message (text may be
+// rephrased/split/dropped). With opts.Infer == false the content is stored
+// VERBATIM — Mem0 skips extraction and embeds the raw text. The response is the
+// same {"results":[...]} envelope; we return the first stored memory (or a
+// synthetic echo when nothing came back, e.g. a deduped no-op).
+//
+// NOTE: `infer` requires the patched mem0-api image (deploy/mem0-api) — the stock
+// OSS REST `MemoryCreate` model omits the field and silently ignores it.
+func (s Source) Add(ctx context.Context, actorID, content string, opts memory.AddOpts) (memory.Memory, error) {
 	body := map[string]any{
 		"messages": []map[string]string{{"role": "user", "content": content}},
 		"user_id":  actorID,
 	}
-	if len(metadata) > 0 {
-		body["metadata"] = metadata
+	if len(opts.Metadata) > 0 {
+		body["metadata"] = opts.Metadata
+	}
+	if opts.Infer != nil {
+		body["infer"] = *opts.Infer
 	}
 	var out mem0List
 	if err := s.postJSON(ctx, "/memories", body, &out); err != nil {
 		return memory.Memory{}, err
 	}
 	if len(out.Results) == 0 {
-		// Mem0 extracted/added nothing (commonly a dedup no-op). Echo the input so
+		// Mem0 stored/extracted nothing (commonly a dedup no-op). Echo the input so
 		// the caller gets a non-error signal rather than a confusing empty record.
-		return memory.Memory{ActorID: actorID, Content: content, Metadata: metadata}, nil
+		return memory.Memory{ActorID: actorID, Content: content, Metadata: opts.Metadata}, nil
 	}
 	return out.Results[0].toNeutral(), nil
 }

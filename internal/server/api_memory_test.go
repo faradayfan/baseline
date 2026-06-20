@@ -14,18 +14,20 @@ import (
 )
 
 // fakeWriter is a memory.Source that ALSO implements memory.Writer, capturing the
-// last Add call so the test can assert the proxy forwarded actor + content.
+// last Add call so the test can assert the proxy forwarded actor + content + opts.
 type fakeWriter struct {
 	null.Source // embeds the read-only no-op source (List/Search/Get)
 	lastActor   string
 	lastContent string
+	lastInfer   *bool
 }
 
-func (f *fakeWriter) Add(_ context.Context, actorID, content string, md map[string]any) (memory.Memory, error) {
+func (f *fakeWriter) Add(_ context.Context, actorID, content string, opts memory.AddOpts) (memory.Memory, error) {
 	f.lastActor = actorID
 	f.lastContent = content
+	f.lastInfer = opts.Infer
 	// Echo a stored memory, as the mem0 adapter would after extraction.
-	return memory.Memory{ID: "m-1", ActorID: actorID, Content: content, Metadata: md}, nil
+	return memory.Memory{ID: "m-1", ActorID: actorID, Content: content, Metadata: opts.Metadata}, nil
 }
 
 // newAPIWithMemory builds the handler with an explicit memory source.
@@ -67,6 +69,35 @@ func TestAPI_AddMemory_ForwardsToWriter(t *testing.T) {
 	storetest.DecodeJSON(t, resp, &got)
 	if got.Content != "deploys happen on Fridays" || got.ActorID != "john" {
 		t.Errorf("returned memory = %+v", got)
+	}
+}
+
+// TestAPI_AddMemory_ForwardsInfer asserts the handler threads `infer` through to
+// the Writer — false (verbatim) when sent, nil (backend default) when omitted.
+func TestAPI_AddMemory_ForwardsInfer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	fw := &fakeWriter{}
+	api, _ := newAPIWithMemory(t, fw)
+
+	// infer:false → forwarded as a non-nil false.
+	resp := api.Do(t, "POST", "/v1/memories",
+		map[string]any{"content": "store me as-is", "infer": false}, hdr("john"))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	if fw.lastInfer == nil || *fw.lastInfer != false {
+		t.Errorf("infer forwarded = %v, want non-nil false", fw.lastInfer)
+	}
+
+	// infer omitted → nil (backend default).
+	resp = api.Do(t, "POST", "/v1/memories",
+		map[string]any{"content": "extract me"}, hdr("john"))
+	resp.Body.Close()
+	if fw.lastInfer != nil {
+		t.Errorf("infer should be nil when omitted, got %v", *fw.lastInfer)
 	}
 }
 

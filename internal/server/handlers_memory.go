@@ -15,6 +15,10 @@ type addMemoryReq struct {
 	Content  string         `json:"content"`
 	ActorID  string         `json:"actor_id,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
+	// Infer controls backend extraction: omit → backend default (Mem0 distills);
+	// false → store verbatim (deliberate [remember:] captures); true → force
+	// extraction. Requires the patched mem0-api image.
+	Infer *bool `json:"infer,omitempty"`
 }
 
 // addMemory handles POST /v1/memories — the out-of-band memory-capture path.
@@ -53,7 +57,10 @@ func (s *Server) addMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mem, err := writer.Add(r.Context(), actorID, req.Content, req.Metadata)
+	mem, err := writer.Add(r.Context(), actorID, req.Content, memory.AddOpts{
+		Metadata: req.Metadata,
+		Infer:    req.Infer,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "memory backend write failed: "+err.Error())
 		return

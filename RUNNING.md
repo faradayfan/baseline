@@ -191,8 +191,11 @@ through the governed MCP/REST path.
 > `kubectl -n baseline delete pod -l app.kubernetes.io/name=mem0-api`.
 > (Note this clears stored memories — re-add them.) Separately, the local
 > `qwen2.5:3b` extractor is conservative: a `"results": []` with no dim error in the
-> logs just means Mem0's LLM judged the text not memory-worthy — phrase captures as
-> clear, declarative facts/preferences.
+> logs means Mem0's LLM judged the text not memory-worthy. Baseline's `[remember:]`
+> capture path posts **`infer:false`** (stored verbatim, no extraction), which
+> sidesteps this — but `infer` requires the **patched mem0-api image**
+> (`deploy/mem0-api`, which adds it to Mem0's REST `MemoryCreate`); the stock OSS
+> image ignores it and always extracts.
 
 ### Memory capture (harness → Mem0, via Baseline)
 

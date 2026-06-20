@@ -74,9 +74,19 @@ Phase 1 used only `tier:` (delivery). Phase 2 adds the cognitive **type** on the
   `/v1/memories` carrying `{type}`; the type is recorded, not used to auto-create
   facts. This avoids the separation-of-duties wall — promotion to a governed fact
   stays a deliberate, reviewed human step (the proposer can't self-approve). The
-  backend already forwards `metadata` end-to-end (mem0 adapter → Mem0); **no backend
-  change was needed.** Verified: a typed capture lands in Mem0 with `metadata.type`.
-- Touch point: `Stop` hook (`capture-memory.sh`); docs in `plugin/README.md`.
+  backend already forwards `metadata` end-to-end (mem0 adapter → Mem0).
+- **Verbatim storage (`infer=false`).** Mem0's `POST /memories` runs an extraction
+  LLM that rewrites/drops input (the local `qwen2.5:3b` silently dropped longer
+  procedural captures). Since `[remember:]` is deliberate, intentionally-phrased
+  capture, the hook now posts `infer:false` → Mem0 stores the text **verbatim**, no
+  extraction. Threaded through `memory.AddOpts{Infer *bool}` → mem0 adapter →
+  `/v1/memories`, and exposed on Mem0's REST `MemoryCreate` via the
+  `deploy/mem0-api` image patch (stock OSS omits the field). *This is the right mode
+  precisely because we've pre-judged the capture; extraction stays reserved for
+  Phase 3 episodic auto-capture, where distilling a transcript is the goal — that's
+  the path a bigger local Ollama extraction model would serve.*
+- Touch points: `Stop` hook (`capture-memory.sh`), `internal/memory` + handler,
+  `deploy/mem0-api/patch_config.py`; docs in `plugin/README.md`.
 
 **Deferred within the type story (Phase 2b, when the governance dependency is ready):**
 

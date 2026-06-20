@@ -154,6 +154,14 @@ of the text. The type informs later treatment — e.g. which `tier:` a memory wo
 get if it's promoted to a governed fact. (Promotion to a fact remains a deliberate,
 reviewed step; capture only records the memory and its type.)
 
+**Captures are stored verbatim.** The hook posts `infer: false`, so Baseline tells
+Mem0 to store the text **as written** — no extraction LLM rewriting it ("I prefer
+Fridays" → "Prefers Friday afternoons") or silently dropping it. A `[remember:]` is
+deliberate, intentionally-phrased capture; second-guessing it is the wrong mode.
+This needs the **patched mem0-api image** (`deploy/mem0-api`) — the stock OSS image
+ignores `infer` and re-extracts. (Extraction mode is reserved for future episodic
+auto-capture, where distilling a transcript is the point.)
+
 ## Config resolution
 
 Scripts read the plugin's install-time config (`CLAUDE_PLUGIN_OPTION_BACKEND_URL`,

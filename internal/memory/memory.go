@@ -58,5 +58,17 @@ type Source interface {
 // 501 when the configured source can't write (e.g. the null source). Keeping it
 // off Source means zep/letta/null need not grow a write method.
 type Writer interface {
-	Add(ctx context.Context, actorID, content string, metadata map[string]any) (Memory, error)
+	Add(ctx context.Context, actorID, content string, opts AddOpts) (Memory, error)
+}
+
+// AddOpts carries optional write parameters. A struct (rather than positional
+// args) so new options don't keep changing the Writer signature.
+type AddOpts struct {
+	// Metadata is stored alongside the memory (e.g. {"type": "procedural"}).
+	Metadata map[string]any
+	// Infer controls backend-side extraction. nil → use the backend default
+	// (Mem0 extracts/distills). false → store the content VERBATIM (no LLM
+	// extraction) — the right mode for deliberate [remember:] captures the caller
+	// has already phrased intentionally. true → force extraction.
+	Infer *bool
 }

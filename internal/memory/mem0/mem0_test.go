@@ -111,7 +111,7 @@ func TestAdd_OSSPathAndExtract(t *testing.T) {
 	defer srv.Close()
 
 	src := mem0.New(srv.URL, "")
-	m, err := src.Add(context.Background(), "john", "I like to deploy on Fridays", nil)
+	m, err := src.Add(context.Background(), "john", "I like to deploy on Fridays", memory.AddOpts{})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -121,8 +121,39 @@ func TestAdd_OSSPathAndExtract(t *testing.T) {
 	if !contains(gotBody, `"user_id":"john"`) || !contains(gotBody, `"role":"user"`) {
 		t.Errorf("body missing messages/user_id shape: %s", gotBody)
 	}
+	// Infer unset → the field is omitted (backend default extraction).
+	if contains(gotBody, `"infer"`) {
+		t.Errorf("infer should be omitted when AddOpts.Infer is nil, got %s", gotBody)
+	}
 	if m.ID != "m9" || m.Content != "Prefers Friday deploys" {
 		t.Errorf("Add did not return the extracted memory: %+v", m)
+	}
+}
+
+// TestAdd_InferVerbatim asserts that AddOpts.Infer=false reaches the POST body as
+// "infer": false — the verbatim mode that skips Mem0's extraction LLM (the right
+// mode for deliberate [remember:] captures).
+func TestAdd_InferVerbatim(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		_, _ = w.Write([]byte(`{"results":[{"id":"m1","user_id":"john","memory":"stored verbatim text","created_at":"2026-06-20T00:00:00Z"}]}`))
+	}))
+	defer srv.Close()
+
+	verbatim := false
+	src := mem0.New(srv.URL, "")
+	m, err := src.Add(context.Background(), "john", "stored verbatim text",
+		memory.AddOpts{Infer: &verbatim})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if !contains(gotBody, `"infer":false`) {
+		t.Errorf("body must carry infer:false for verbatim storage, got %s", gotBody)
+	}
+	if m.Content != "stored verbatim text" {
+		t.Errorf("Add returned %+v", m)
 	}
 }
 
@@ -136,7 +167,7 @@ func TestAdd_DedupNoOpEchoes(t *testing.T) {
 	defer srv.Close()
 
 	src := mem0.New(srv.URL, "")
-	m, err := src.Add(context.Background(), "john", "already known", nil)
+	m, err := src.Add(context.Background(), "john", "already known", memory.AddOpts{})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}

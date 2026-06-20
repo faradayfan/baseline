@@ -42,16 +42,31 @@ NEW_VS = (
     '            "embedding_model_dims": int(os.environ.get("OLLAMA_EMBEDDING_DIMS", "768")),'
 )
 
+# Expose `infer` on the REST contract. The stock MemoryCreate model has no `infer`
+# field, so the FastAPI handler silently drops a posted `infer` — and Baseline's
+# verbatim-capture path (infer=False, store raw text without LLM extraction) is
+# unreachable. The handler already spreads request fields into Memory.add(**params),
+# so adding the field is enough; None preserves Mem0's own default (infer=True).
+OLD_INFER = '    metadata: Optional[Dict[str, Any]] = None'
+NEW_INFER = (
+    '    metadata: Optional[Dict[str, Any]] = None\n'
+    '    infer: Optional[bool] = None'
+)
+
 with io.open(PATH, "r", encoding="utf-8") as f:
     src = f.read()
 
 assert OLD_LLM in src, "stock OpenAI llm line not found — upstream image changed; review patch_config.py"
 assert OLD_EMBED in src, "stock OpenAI embedder line not found — upstream image changed; review patch_config.py"
 assert OLD_VS in src, "stock vector_store collection_name line not found — upstream changed; review patch_config.py"
+assert OLD_INFER in src, "stock MemoryCreate.metadata line not found — upstream changed; review patch_config.py"
 
 src = src.replace(OLD_LLM, NEW_LLM).replace(OLD_EMBED, NEW_EMBED).replace(OLD_VS, NEW_VS)
+# Replace only the first occurrence (the MemoryCreate model) — other models may
+# also carry a `metadata: Optional[...]` line, and only the create body needs infer.
+src = src.replace(OLD_INFER, NEW_INFER, 1)
 
 with io.open(PATH, "w", encoding="utf-8") as f:
     f.write(src)
 
-print("patched /app/main.py: llm+embedder -> ollama provider", file=sys.stderr)
+print("patched /app/main.py: llm+embedder -> ollama provider; MemoryCreate += infer", file=sys.stderr)

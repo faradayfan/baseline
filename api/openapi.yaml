@@ -374,9 +374,10 @@ components:
       type: object
       required: [content]
       properties:
-        content: { type: string, description: raw text to remember; the backend may rephrase/split it }
+        content: { type: string, description: raw text to remember; the backend may rephrase/split it unless infer is false }
         actor_id: { type: string, description: defaults to the authenticated principal }
         metadata: { type: object, additionalProperties: true }
+        infer: { type: boolean, description: "backend extraction control — omit for the backend default (Mem0 distills); false stores the content verbatim (no LLM extraction); true forces extraction. Requires the patched mem0-api image." }
 
     Memory:
       type: object

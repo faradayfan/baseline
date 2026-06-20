@@ -121,7 +121,11 @@ principal = os.environ.get("BASELINE_PRINCIPAL_RESOLVED", "")
 token = os.environ.get("BASELINE_TOKEN", "")
 saved = []
 for mtype, text in spans:
-    body = json.dumps({"content": text, "metadata": {"type": mtype}}).encode()
+    # infer=false → store the text VERBATIM. A [remember:] capture is deliberate
+    # and intentionally phrased; we don't want Mem0's extraction LLM to rewrite or
+    # drop it. (Requires the patched mem0-api image; stock ignores the field.)
+    body = json.dumps({"content": text, "metadata": {"type": mtype},
+                       "infer": False}).encode()
     headers = {"Content-Type": "application/json",
                "X-Baseline-Principal": principal}
     if token:
