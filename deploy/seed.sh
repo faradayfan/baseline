@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 #
-# seed.sh — seed a namespace + role grants on the DEPLOYED Baseline (Pi cluster),
-# emulating org onboarding. Runs psql inside the in-cluster Postgres pod via
-# kubectl exec (the DB is ClusterIP-only, not exposed on the LAN).
+# seed.sh — create the org namespace + grant a principal membership on the
+# DEPLOYED Baseline, emulating org onboarding. Runs psql inside the in-cluster
+# Postgres pod via kubectl exec (the DB is ClusterIP-only, not exposed on the LAN).
+#
+# WHY MEMBERSHIP MATTERS: facts are namespace-scoped, and a principal only sees a
+# namespace's facts if it holds a membership role there. A principal with NO
+# membership sees NOTHING from /context or /facts — there is no "org-wide, visible
+# to everyone" tier. So onboarding a new agent/person is two steps: point their
+# client at Baseline AND run this seed for their principal. Connecting as a
+# principal you did not seed (e.g. the plugin's default 'local-dev') returns zero
+# facts — that's expected, not a bug.
 #
 # Usage:
 #   ./deploy/seed.sh                       # grants 'john' reader+contributor+reviewer on org
-#   PRINCIPAL=alice ./deploy/seed.sh       # different principal
+#   PRINCIPAL=alice ./deploy/seed.sh       # onboard a different principal
 #   CONTEXT=k3s NAMESPACE=baseline ./deploy/seed.sh
 #
 # Add a teammate as reviewer (to exercise the full propose->approve loop without
@@ -70,6 +78,14 @@ psql_pod -tc \
    UNION ALL SELECT '  grants for ${PRINCIPAL}: '||count(*) FROM memberships WHERE principal='${PRINCIPAL}'
    UNION ALL SELECT '  active facts: '||count(*) FROM facts WHERE status='active';"
 
+# Show which namespaces THIS principal is now entitled to read — that membership
+# set is exactly what determines the facts they'll see.
+echo "  ${PRINCIPAL} is entitled to read:"
+psql_pod -tc \
+  "SELECT '    - '||n.name||' ('||n.kind||')'
+   FROM memberships m JOIN namespaces n ON n.id=m.namespace_id
+   WHERE m.principal='${PRINCIPAL}' GROUP BY n.name, n.kind ORDER BY n.name;"
+
 echo
 # URL hint depends on where this was seeded: localhost for Docker Desktop, the
 # MetalLB IP for the Pi cluster. Override with BASELINE_URL if needed.
@@ -81,3 +97,5 @@ if [ -z "${BASELINE_URL:-}" ]; then
 fi
 echo "Done. Point your Claude MCP config at ${BASELINE_URL}/mcp with"
 echo "header X-Baseline-Principal: ${PRINCIPAL} (see RUNNING.md)."
+echo "NOTE: only '${PRINCIPAL}' was granted membership. A different principal sees"
+echo "      no facts until you re-run this seed with PRINCIPAL=<their-id>."

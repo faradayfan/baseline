@@ -62,6 +62,32 @@ Use your real deployment URL + identity for a hosted Baseline. `api_token` is
 `sensitive`, so it is **not** stored here — it goes to the system keychain; leave
 it out of this file (the open dev/POC needs no token).
 
+## Connected but seeing no facts? You need a namespace membership
+
+Facts in Baseline are **namespace-scoped**, and a principal only sees a namespace's
+facts if it holds a **membership** there. A principal with no membership sees
+**nothing** from `/context`, `search_facts`, or `get_context` — there is no
+"org-wide, visible to everyone" tier. This is by design (the governance model gates
+read access on entitlement).
+
+So a working install has **two** requirements, not one:
+
+1. The plugin points at Baseline with your principal (the config above), **and**
+2. **someone has granted that principal a membership** in the relevant namespace.
+
+If `search_facts` returns an empty list but the dashboard shows facts, the cause is
+almost always a principal mismatch — you're connected as a principal that was never
+granted membership (e.g. the default `local-dev`, or a new identity nobody onboarded
+yet). The fix is to onboard that principal:
+
+```bash
+# local cluster:   PRINCIPAL=<your-id> CONTEXT=docker-desktop ./deploy/seed.sh
+# remote cluster:  PRINCIPAL=<your-id> CONTEXT=k3s ./deploy/seed.sh
+```
+
+The seed script creates the `org` namespace (idempotent) and grants the principal
+its roles; its summary prints which namespaces that principal can now read.
+
 ## Opting in to memory capture
 
 Capture is gated so `[remember: …]` doesn't silently write memories everywhere.
