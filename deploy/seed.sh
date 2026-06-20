@@ -53,7 +53,14 @@ psql_pod() { kc exec -i "$POD" -- env PGPASSWORD="$PGPASSWORD" psql -U "$PG_USER
 # Build the role-grant VALUES list.
 ROLE_ARRAY=$(printf "'%s'," $ROLES); ROLE_ARRAY="ARRAY[${ROLE_ARRAY%,}]"
 
-echo "==> seeding org namespace + granting '$PRINCIPAL' [$ROLES] + a sample fact"
+echo "==> seeding org namespace + granting '$PRINCIPAL' [$ROLES] + tiered sample facts"
+# Two demo facts that exercise the plugin's tiered injection (see plugin/README.md
+# → Tiered injection). `tier:` is the DELIVERY axis: when the plugin injects a fact.
+#   - tier:always   → injected once per session (SessionStart) — a guardrail.
+#   - tier:relevant → injected per-turn when the project's .baseline-topics matches
+#                     one of its topic tags (here, 'deploy').
+# Re-running the seed converges existing demo facts to these tags (UPDATE), so a
+# cluster seeded before tiering still ends up tiered.
 psql_pod >/dev/null <<SQL
 INSERT INTO namespaces (name, kind, policy)
 VALUES ('org', 'org', '{"required_approvals":1}')
@@ -64,19 +71,39 @@ SELECT '${PRINCIPAL}', id, r FROM namespaces n, unnest(${ROLE_ARRAY}) AS r
 WHERE n.name = 'org'
 ON CONFLICT DO NOTHING;
 
+-- Always-on guardrail (tier:always → loaded once at SessionStart).
+INSERT INTO facts (namespace_id, statement, subject, canonical_key, status, tags, created_by, valid_from)
+SELECT id, 'Run the test suite before committing.',
+       '{"type":"workflow.pre-commit","scope":"global"}'::jsonb, 'workflow.pre-commit:global',
+       'active', '{tier:always,workflow,testing}', 'seed', now()
+FROM namespaces WHERE name='org'
+ON CONFLICT DO NOTHING;
+
+-- Relevant, topic-scoped fact (tier:relevant + 'deploy' → injected per-turn when a
+-- project's .baseline-topics lists 'deploy').
 INSERT INTO facts (namespace_id, statement, subject, canonical_key, status, tags, created_by, valid_from)
 SELECT id, 'All production deploys must go through CI.',
        '{"type":"deploy.policy","scope":"global"}'::jsonb, 'deploy.policy:global',
-       'active', '{}', 'seed', now()
+       'active', '{tier:relevant,deploy}', 'seed', now()
 FROM namespaces WHERE name='org'
 ON CONFLICT DO NOTHING;
+
+-- Converge an already-seeded cluster: ensure the demo facts carry their tier tags
+-- even if they predate tiering (the INSERTs no-op on conflict). Idempotent.
+UPDATE facts SET tags = array(SELECT DISTINCT unnest(tags || ARRAY['tier:always','workflow','testing']))
+ WHERE status='active' AND canonical_key='workflow.pre-commit:global';
+UPDATE facts SET tags = array(SELECT DISTINCT unnest(tags || ARRAY['tier:relevant','deploy']))
+ WHERE status='active' AND canonical_key='deploy.policy:global';
 SQL
 
 echo "==> summary"
 psql_pod -tc \
   "SELECT '  namespaces: '||count(*) FROM namespaces
    UNION ALL SELECT '  grants for ${PRINCIPAL}: '||count(*) FROM memberships WHERE principal='${PRINCIPAL}'
-   UNION ALL SELECT '  active facts: '||count(*) FROM facts WHERE status='active';"
+   UNION ALL SELECT '  active facts: '||count(*) FROM facts WHERE status='active'
+   UNION ALL SELECT '    tier:always (SessionStart): '||count(*) FROM facts WHERE status='active' AND 'tier:always'=ANY(tags)
+   UNION ALL SELECT '    tier:relevant (per-turn):   '||count(*) FROM facts WHERE status='active' AND 'tier:relevant'=ANY(tags)
+   UNION ALL SELECT '    untagged/ondemand (pull):   '||count(*) FROM facts WHERE status='active' AND NOT ('tier:always'=ANY(tags) OR 'tier:relevant'=ANY(tags));"
 
 # Show which namespaces THIS principal is now entitled to read — that membership
 # set is exactly what determines the facts they'll see.
