@@ -67,12 +67,27 @@ if not path or not os.path.exists(path):
     sys.exit(0)
 
 # Collect assistant text from the CURRENT TURN — every assistant text block since
-# the most recent user message. A single turn produces many assistant messages
-# (text interleaved with tool_use), and a [remember:] marker usually sits in an
-# earlier text block, not the final message (which is often a tool_use with no
-# text). Reading only the last message silently misses the marker; resetting the
-# buffer on each user message scopes capture to this turn (so prior turns' markers
-# aren't re-captured — Stop fires once per turn).
+# the most recent GENUINE user prompt. A single turn produces many assistant
+# messages (text interleaved with tool_use), and a [remember:] marker usually sits
+# in an earlier text block, not the final message (which is often a tool_use with
+# no text). Reading only the last message silently misses the marker.
+#
+# CRITICAL: tool results are recorded as `type:"user"` messages whose content is a
+# `tool_result` block — they are NOT real user prompts. Resetting the turn on those
+# would wipe markers written before a tool ran (the common case, since a capture is
+# usually followed by tool calls). So reset ONLY on a genuine user prompt: a `user`
+# message carrying actual text (a string, or a `text` content block), never one
+# that's only tool_result(s). This scopes capture to one real turn (Stop fires per
+# turn) without being fooled by mid-turn tool results.
+def is_real_user_prompt(rec):
+    parts = rec.get("message", {}).get("content", [])
+    if isinstance(parts, str):
+        return parts.strip() != ""
+    if isinstance(parts, list):
+        return any(isinstance(p, dict) and p.get("type") == "text" and p.get("text")
+                   for p in parts)
+    return False
+
 last_text = None
 try:
     turn_chunks = []
@@ -87,7 +102,9 @@ try:
                 continue
             rtype = rec.get("type")
             if rtype == "user":
-                turn_chunks = []  # new turn — drop any prior assistant text
+                if is_real_user_prompt(rec):
+                    turn_chunks = []  # genuine new turn — drop prior assistant text
+                # else: a tool_result masquerading as user — do NOT reset.
                 continue
             if rtype != "assistant":
                 continue
@@ -107,25 +124,24 @@ except Exception:
 if not last_text:
     sys.exit(0)
 
-# Match `[remember: text]` or `[remember:TYPE: text]`. The optional TYPE is the
-# first colon-delimited token after `remember:` when it's one of the known types;
-# anything else (or no token) means untyped → default semantic.
+# Match ONLY `[remember:TYPE: text]` with an explicit TYPE
+# (semantic | procedural | episodic), single-line, text not containing `]`.
+#
+# An explicit type is REQUIRED (no bare `[remember: …]`) and the match cannot span
+# newlines or a `]`. This is deliberate: these markers are discussed constantly in
+# prose ("the `[remember:]` tag", "10 `[remember:semantic` markers…"), and a loose
+# pattern matched that meta-discussion, creating false captures. Requiring the full
+# `[remember:TYPE: …]` shape makes a real capture unambiguous and impossible to
+# trigger by merely talking about the syntax.
 TYPES = {"semantic", "procedural", "episodic"}
-DEFAULT_TYPE = "semantic"
 
 spans = []
-for raw in re.findall(r"\[remember:\s*(.+?)\]", last_text, re.IGNORECASE | re.DOTALL):
-    raw = raw.strip()
-    if not raw:
-        continue
-    mtype = DEFAULT_TYPE
-    # Explicit type prefix: "procedural: actual text". Split once on the first ':'.
-    head, sep, rest = raw.partition(":")
-    if sep and head.strip().lower() in TYPES:
-        mtype = head.strip().lower()
-        raw = rest.strip()
-    if raw:
-        spans.append((mtype, raw))
+for mtype, text in re.findall(
+        r"\[remember:(semantic|procedural|episodic):\s*([^\]\n]+?)\s*\]",
+        last_text, re.IGNORECASE):
+    text = text.strip()
+    if text:
+        spans.append((mtype.lower(), text))
 if not spans:
     sys.exit(0)
 
