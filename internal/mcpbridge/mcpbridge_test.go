@@ -10,6 +10,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/faradayfan/baseline/internal/mcpbridge"
+	"github.com/faradayfan/baseline/internal/memory"
+	"github.com/faradayfan/baseline/internal/memory/null"
 	"github.com/faradayfan/baseline/internal/server"
 	"github.com/faradayfan/baseline/internal/storetest"
 )
@@ -79,7 +81,7 @@ func TestTools_Listed(t *testing.T) {
 	want := map[string]bool{
 		"get_context": false, "search_facts": false, "propose_fact": false,
 		"list_my_promotions": false, "review_promotion": false,
-		"list_namespaces": false, "submit_promotion": false,
+		"list_namespaces": false, "submit_promotion": false, "save_memory": false,
 	}
 	for _, tool := range res.Tools {
 		want[tool.Name] = true
@@ -354,6 +356,101 @@ func TestSubmitPromotion_AdvancesToReview(t *testing.T) {
 	}
 	if state != "in_review" {
 		t.Errorf("after submit_promotion, state = %s, want in_review", state)
+	}
+}
+
+// memWriter is a memory.Source that also implements memory.Writer, capturing the
+// last Add so save_memory tests can assert what was forwarded.
+type memWriter struct {
+	null.Source
+	actor   string
+	content string
+	meta    map[string]any
+	infer   *bool
+}
+
+func (m *memWriter) Add(_ context.Context, actorID, content string, opts memory.AddOpts) (memory.Memory, error) {
+	m.actor, m.content, m.meta, m.infer = actorID, content, opts.Metadata, opts.Infer
+	return memory.Memory{ID: "m-1", ActorID: actorID, Content: content, Metadata: opts.Metadata}, nil
+}
+
+// connectWithMemory builds a bridge over a server wired with the given memory
+// source (so save_memory can reach a Writer).
+func connectWithMemory(t *testing.T, principal string, mem memory.Source) (*mcp.ClientSession, *pgxpool.Pool) {
+	t.Helper()
+	h := storetest.Shared(t)
+	pool := h.FreshDB(t)
+	handler := server.NewWithMemory(pool, server.HeaderAuthenticator{}, mem).Handler()
+	bridge := mcpbridge.New(handler, principal)
+	srv := bridge.Server()
+	clientT, serverT := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	if _, err := srv.Connect(ctx, serverT, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	return cs, pool
+}
+
+// TestSaveMemory_ForwardsVerbatimTyped asserts save_memory posts the content to
+// the writer for the caller's principal, typed and verbatim (infer=false).
+func TestSaveMemory_ForwardsVerbatimTyped(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	mw := &memWriter{}
+	cs, _ := connectWithMemory(t, "alice", mw)
+
+	res := call(t, cs, "save_memory", map[string]any{
+		"content": "John prefers pnpm over npm", "type": "procedural",
+	})
+	if res.IsError {
+		t.Fatalf("save_memory errored: %v", res.Content)
+	}
+	if mw.actor != "alice" {
+		t.Errorf("actor = %q, want alice (the authenticated principal)", mw.actor)
+	}
+	if mw.content != "John prefers pnpm over npm" {
+		t.Errorf("content not forwarded verbatim: %q", mw.content)
+	}
+	if mw.infer == nil || *mw.infer {
+		t.Errorf("infer = %v, want false (verbatim capture)", mw.infer)
+	}
+	if mw.meta["type"] != "procedural" {
+		t.Errorf("metadata.type = %v, want procedural", mw.meta["type"])
+	}
+}
+
+// TestSaveMemory_DefaultsToSemantic asserts an omitted type defaults to semantic.
+func TestSaveMemory_DefaultsToSemantic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	mw := &memWriter{}
+	cs, _ := connectWithMemory(t, "alice", mw)
+	if res := call(t, cs, "save_memory", map[string]any{"content": "x"}); res.IsError {
+		t.Fatalf("save_memory errored: %v", res.Content)
+	}
+	if mw.meta["type"] != "semantic" {
+		t.Errorf("default type = %v, want semantic", mw.meta["type"])
+	}
+}
+
+// TestSaveMemory_ReadOnlyBackendIsError asserts that with no writer (the null
+// source), save_memory surfaces the 501 as a tool error rather than crashing.
+func TestSaveMemory_ReadOnlyBackendIsError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	cs, _ := connectWithMemory(t, "alice", null.New())
+	res := call(t, cs, "save_memory", map[string]any{"content": "x"})
+	if !res.IsError {
+		t.Error("save_memory against a read-only backend should be a tool error (501)")
 	}
 }
 

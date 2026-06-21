@@ -15,10 +15,12 @@ It bundles three things:
    metadata. **Opt-in** (see below) so it does not fire in unrelated repos.
 3. **MCP tools** (HTTP MCP server) — exposes `get_context`, `search_facts`,
    `list_namespaces`, `propose_fact`, `submit_promotion`, `list_my_promotions`,
-   `review_promotion` against `<backend_url>/mcp`, authenticated per-user with
-   `X-Baseline-Principal`. Together these let an agent walk the whole authoring
-   flow: discover a namespace → propose a fact → submit it for review → (a
-   different reviewer) approve it.
+   `review_promotion`, `save_memory` against `<backend_url>/mcp`, authenticated
+   per-user with `X-Baseline-Principal`. Together these let an agent walk the
+   whole authoring flow: discover a namespace → propose a fact → submit it for
+   review → (a different reviewer) approve it — and `save_memory` lets the agent
+   capture a personal memory as a first-class tool call (the native alternative
+   to the `[remember:]` marker; same verbatim, typed storage).
 
 ## Tiered injection — keeping context clean as facts scale
 

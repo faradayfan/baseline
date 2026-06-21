@@ -109,6 +109,14 @@ func (b *Bridge) Server() *mcp.Server {
 		Description: "Approve, reject, or request changes on someone else's promotion (step 3, reviewer-only). Separation of duties is enforced: you can NEVER approve a promotion you proposed. `action` ∈ approve|reject|request-changes. On enough distinct approvals the fact becomes active. Maps to the promotion review actions.",
 	}, wrap(b.reviewPromotion))
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "save_memory",
+		Description: "Save a personal memory (stored verbatim for YOU, surfaced back via get_context in later sessions). This is NOT a governed fact — it is private to your principal and never overrides a fact. " +
+			"`content` is the memory text. Optional `type`: semantic (a durable truth), procedural (how to do something / a standing rule), or episodic (a notable thing that happened); defaults to semantic. " +
+			"CAPTURE SPARINGLY — a memory is persistent and someone must curate it. Save only what is durable, reusable in a FUTURE session, and stated or clearly confirmed by the user. Do NOT save chatter, restated requests, transient task detail, or your own guesses. When unsure, don't. " +
+			"To make something an org-shared rule instead, use propose_fact. Maps to POST /memories.",
+	}, wrap(b.saveMemory))
+
 	return s
 }
 
@@ -152,6 +160,11 @@ type proposeFactIn struct {
 }
 
 type listNamespacesIn struct{}
+
+type saveMemoryIn struct {
+	Content string `json:"content"`
+	Type    string `json:"type,omitempty"` // semantic | procedural | episodic (default semantic)
+}
 
 type submitPromotionIn struct {
 	PromotionID string `json:"promotion_id"`
@@ -244,6 +257,31 @@ func (b *Bridge) reviewPromotion(ctx context.Context, in reviewPromotionIn) (*mc
 		body["suggested_statement"] = in.SuggestedStatement
 	}
 	return b.call(ctx, http.MethodPost, "/v1/promotions/"+url.PathEscape(in.PromotionID)+"/"+in.Action, body)
+}
+
+func (b *Bridge) saveMemory(ctx context.Context, in saveMemoryIn) (*mcp.CallToolResult, any, error) {
+	if in.Content == "" {
+		return errorResult("content is required"), nil, nil
+	}
+	mtype := in.Type
+	if mtype == "" {
+		mtype = "semantic" // matches the [remember:] hook's untyped default
+	}
+	switch mtype {
+	case "semantic", "procedural", "episodic":
+	default:
+		return errorResult("type must be semantic|procedural|episodic"), nil, nil
+	}
+	// infer=false stores the text verbatim — a deliberate capture, like the
+	// [remember:] hook. actor_id is omitted: the server defaults it to the
+	// authenticated principal, so a memory is always saved for the caller.
+	verbatim := false
+	body := map[string]any{
+		"content":  in.Content,
+		"metadata": map[string]any{"type": mtype},
+		"infer":    verbatim,
+	}
+	return b.call(ctx, http.MethodPost, "/v1/memories", body)
 }
 
 // call dispatches a synthetic request through the REST handler as the bridge's
