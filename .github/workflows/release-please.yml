@@ -102,7 +102,8 @@ jobs:
         with:
           context: ./deploy/mem0-api
           build-args: PATCH_OLLAMA=1
-          platforms: linux/amd64,linux/arm64
+          # amd64-only: the mem0/mem0-api-server base ships no arm64 manifest.
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.REGISTRY }}/baseline-mem0-api:${{ env.VERSION }}
