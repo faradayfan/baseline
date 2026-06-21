@@ -75,8 +75,37 @@ local-images: ## Build the 4 images (incl. the read-only UI) and load them into 
 	  docker save "$$img" | docker exec -i $(K8S_NODE) ctr -n k8s.io images import - >/dev/null; \
 	done
 
+# --- Security scanning (grype) ---------------------------------------------
+# Vulnerability gate run AFTER images are built but BEFORE they deploy/push,
+# mirroring CI's grype step locally so a vuln is caught at `make local-up` rather
+# than on the PR. Critical + High findings fail the build; Medium/Low are
+# reported only. grype is pinned in .tool-versions (asdf). GRYPE_FAIL_ON overrides
+# the threshold (e.g. GRYPE_FAIL_ON=critical make scan).
+GRYPE_FAIL_ON ?= high
+
+# Only the FIRST-PARTY images are gated (service + UI). The postgres/mem0-api
+# images are third-party bases we don't control — scanning them here would be
+# perpetual unactionable noise (same call CI makes).
+SCAN_IMAGES := baseline:dev baseline-ui:dev
+
+.PHONY: scan
+scan: ## Scan the locally-built images for vulns (fail on Critical/High)
+	@command -v grype >/dev/null || { echo "grype not found — run: asdf install grype"; exit 1; }
+	@for img in $(SCAN_IMAGES); do \
+	  echo "==> scanning $$img"; \
+	  grype "$$img" --fail-on $(GRYPE_FAIL_ON) || exit 1; \
+	done
+	@echo "✓ image scan clean (no $(GRYPE_FAIL_ON)+ vulnerabilities)"
+
+.PHONY: scan-pi
+scan-pi: ## Scan the Pi-tagged service image for vulns (fail on Critical/High)
+	@command -v grype >/dev/null || { echo "grype not found — run: asdf install grype"; exit 1; }
+	@echo "==> scanning $(IMAGE):$(PI_TAG)"
+	@grype "$(IMAGE):$(PI_TAG)" --fail-on $(GRYPE_FAIL_ON) || exit 1
+	@echo "✓ Pi image scan clean (no $(GRYPE_FAIL_ON)+ vulnerabilities)"
+
 .PHONY: local-up
-local-up: local-images helm-deps ## Build+load images and install the chart on Docker Desktop
+local-up: local-images scan helm-deps ## Build+load images, scan for vulns, install the chart on Docker Desktop
 	@command -v ollama >/dev/null && ollama list 2>/dev/null | grep -q qwen2.5:3b || \
 	  echo "WARN: host Ollama / qwen2.5:3b not found — run: ollama serve; ollama pull qwen2.5:3b; ollama pull nomic-embed-text"
 	helm upgrade --install baseline $(CHART) \
@@ -131,7 +160,11 @@ pi-image: ## Build the linux/arm64 image for the Pi registry (tag = git SHA)
 	docker buildx build --platform linux/arm64 -t $(IMAGE):$(PI_TAG) --load .
 
 .PHONY: pi-push
-pi-push: ## Build + push the arm64 image to the in-cluster registry
+pi-push: ## Build + scan + push the arm64 image to the in-cluster registry
+	# Build+load first so grype can scan the exact image before it leaves the
+	# machine; push only if the scan passes (vuln gate before publish).
+	docker buildx build --platform linux/arm64 -t $(IMAGE):$(PI_TAG) --load .
+	$(MAKE) scan-pi
 	docker buildx build --platform linux/arm64 -t $(IMAGE):$(PI_TAG) --push .
 
 .PHONY: pi-deploy

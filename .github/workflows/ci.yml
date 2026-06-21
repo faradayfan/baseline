@@ -265,17 +265,14 @@ jobs:
           push: false
           tags: baseline-mem0-api:ci
 
-      # grype the first-party images (service + UI). The postgres/mem0 images are
-      # third-party bases we don't control — scanning them on every PR is noise.
+      # grype the first-party images (service + UI). Use the grype CLI (not the
+      # action) so it honors .grype.yaml — the same fail-on-severity + ignore-list
+      # that `make scan` uses locally, giving CI and local dev one source of
+      # truth. The postgres/mem0 images are third-party bases we don't control —
+      # scanning them on every PR is noise.
+      - name: Install grype
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.114.0
       - name: grype service image
-        uses: anchore/scan-action@v4
-        with:
-          image: "baseline:ci"
-          severity-cutoff: high
-          fail-build: true
+        run: grype baseline:ci
       - name: grype UI image
-        uses: anchore/scan-action@v4
-        with:
-          image: "baseline-ui:ci"
-          severity-cutoff: high
-          fail-build: true
+        run: grype baseline-ui:ci

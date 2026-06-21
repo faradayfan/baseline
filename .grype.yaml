@@ -1,0 +1,26 @@
+# grype config — used by `make scan` / `make scan-pi` and mirrored in CI.
+#
+# Fail the build on Critical + High (Medium/Low are reported only). This matches
+# the org guardrail (grype-based scanning) and CI's severity-cutoff.
+fail-on-severity: high
+
+# Ignore list: vulnerabilities we cannot act on from this repo. Every entry is an
+# OS-package CVE in the nginx:alpine BASE image of the UI (third-party, not our
+# code), with NO fix yet available in Alpine — or only fixable by a base bump we
+# already track via the unversioned `nginx:alpine` tag + rebuilds. They are not
+# reachable by the UI's job (serving static files + proxying), e.g. libtiff is a
+# transitive base package an nginx static server never invokes.
+#
+# REVIEW: re-check on each dependency bump — when Alpine ships fixes, remove the
+# entry so the real upgrade is enforced. Do NOT add app-dependency CVEs here;
+# those must be fixed, not ignored.
+ignore:
+  # libtiff — no upstream fix; not reachable (nginx serves static assets).
+  - vulnerability: CVE-2023-52356
+  - vulnerability: CVE-2026-4775
+  # curl/libcurl — no upstream Alpine fix yet; UI does not make outbound curl calls.
+  - vulnerability: CVE-2026-5773
+  - vulnerability: CVE-2026-6276
+  # libexpat — fix lands with the next nginx:alpine base rebuild.
+  - vulnerability: CVE-2026-45186
+  - vulnerability: CVE-2026-41080
