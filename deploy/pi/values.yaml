@@ -18,8 +18,15 @@ memorySource: mem0      # Phase 2: read personal memories from the in-cluster Me
 
 # embedder deliberately UNSET on the Pi: there is no fast local Ollama here (Mem0
 # uses the OpenAI API for the same reason). Baseline therefore runs without a fact
-# embedder — /facts?q= falls back to substring. Point embedder.url at an Ollama (or
-# add an OpenAI-compatible embedder adapter) to enable semantic search on the Pi.
+# embedder — /facts?q= falls back to substring.
+#
+# To enable semantic search here you'd most likely use the OpenAI API (as Mem0
+# does), but the embed client only speaks the OLLAMA wire format today — OpenAI is
+# NOT yet supported (see internal/embed/embed.go). It needs a small provider
+# adapter: OpenAI uses POST /v1/embeddings, bearer auth, an `input` field, a
+# `data[].embedding` response envelope, and 1536-dim vectors by default (request
+# `dimensions: 768` to fit the fixed facts.embedding vector(768) column). Until
+# that adapter exists, point embedder.url only at an Ollama-compatible endpoint.
 
 service:
   type: LoadBalancer

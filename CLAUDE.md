@@ -28,11 +28,15 @@ the MCP `search_facts` tool) embeds the query and ranks by pgvector cosine dista
 `facts.embedding`; facts are embedded on activation (best-effort, degrades to NULL on embedder
 outage), `BASELINE_EMBED_BACKFILL=true` backfills NULLs, and entitlement scoping is preserved
 (ranking changes ORDER BY only, never the WHERE). With no embedder configured, `q` falls back to
-substring.
+substring. The embed client speaks the **Ollama wire format only** — OpenAI is not yet supported
+(it needs a provider adapter + a dims decision; see `internal/embed/embed.go`), so the Pi cluster
+(no fast local Ollama) currently runs substring-only.
 
 What remains **deferred-by-plan**, not unfinished: an OTEL exporter (instruments exist;
-production points `OTEL_*` at the collector) and real OIDC/mTLS authenticators (the `Authenticator`
-seam exists; `HeaderAuthenticator` is dev-only).
+production points `OTEL_*` at the collector), real OIDC/mTLS authenticators (the `Authenticator`
+seam exists; `HeaderAuthenticator` is dev-only), and an **OpenAI embedder adapter** (the `Embedder`
+seam exists; only the Ollama client is implemented — relevant for the Pi, mirroring Mem0's OpenAI
+fallback).
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
 v1 decisions decided). Read it before implementing anything; the decisions in §18 are settled — do

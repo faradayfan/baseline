@@ -2,6 +2,17 @@
 // own fact embeddings, fully decoupled from any memory backend's vector store.
 // The embedder's output dimension MUST equal the facts.embedding vector(N)
 // column width — a mismatch is a startup error, not a silent runtime failure.
+//
+// PROVIDER SUPPORT: this client speaks the OLLAMA embeddings wire format ONLY —
+// POST /api/embeddings, no auth, {"model","prompt"} → {"embedding":[…]}. OpenAI
+// (and other providers) are NOT supported: OpenAI uses POST /v1/embeddings,
+// bearer auth, an "input" field, a {"data":[{"embedding":[…]}]} envelope, and
+// 1536-dim vectors by default. Adding OpenAI (e.g. for the Pi cluster, mirroring
+// Mem0's OpenAI fallback) is a clean follow-up — the Embedder interface seam in
+// promotions/server already isolates callers from this concrete client — but it
+// needs a provider adapter plus a dimension decision (request OpenAI's
+// `dimensions: 768` to keep the fixed vector(768) column, or make the column
+// width configurable).
 package embed
 
 import (
