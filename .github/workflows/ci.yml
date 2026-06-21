@@ -62,10 +62,12 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
-          # Lockfile is v9 → pnpm 9. The action runs at the repo ROOT, so point it
-          # at the frontend package (otherwise: "packages field missing or empty").
-          version: 9
-          package_json_file: frontend/package.json
+          # Use pnpm 11 to match local dev. frontend/pnpm-workspace.yaml declares
+          # `allowBuilds: esbuild` (a pnpm-11 feature, needed so esbuild's
+          # postinstall runs); under pnpm 9 that file is read as a strict workspace
+          # manifest and fails with "packages field missing or empty". The v9
+          # lockfile is forward-compatible — pnpm 11 reads it fine.
+          version: 11
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -102,8 +104,12 @@ jobs:
         # The Bitnami postgresql subchart is gitignored (vendored locally, not in
         # the repo), so a fresh CI checkout must fetch it before lint/template —
         # mirrors the Makefile's `helm-deps`. Without it, `helm template` errors:
-        # "missing in charts/ directory: postgresql".
-        run: helm dependency build deploy/charts/baseline
+        # "missing in charts/ directory: postgresql". The repo must be registered
+        # first (a fresh runner has no repos), then `dependency build` resolves it.
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+          helm dependency build deploy/charts/baseline
 
       - name: Lint chart
         run: helm lint deploy/charts/baseline
