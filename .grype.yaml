@@ -4,6 +4,14 @@
 # the org guardrail (grype-based scanning) and CI's severity-cutoff.
 fail-on-severity: high
 
+# Exclude build-time-only artifacts that never ship. esbuild (under
+# frontend/node_modules) bundles a PREBUILT Go binary whose embedded stdlib
+# version grype flags as vulnerable — but it's a third-party build tool, not our
+# code, and never reaches production. CI's source scan checks out a clean tree
+# (no node_modules) so it's unaffected; this keeps local `grype dir:.` consistent.
+exclude:
+  - "./frontend/node_modules/**"
+
 # Ignore list: vulnerabilities we cannot act on from this repo. Every entry is an
 # OS-package CVE in the nginx:alpine BASE image of the UI (third-party, not our
 # code), with NO fix yet available in Alpine — or only fixable by a base bump we
