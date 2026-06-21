@@ -62,8 +62,10 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
-          # Lockfile is v9 → pnpm 9.
+          # Lockfile is v9 → pnpm 9. The action runs at the repo ROOT, so point it
+          # at the frontend package (otherwise: "packages field missing or empty").
           version: 9
+          package_json_file: frontend/package.json
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -95,6 +97,13 @@ jobs:
         with:
           # Match the pinned helm in .tool-versions.
           version: "3.16.4"
+
+      - name: Build chart dependencies
+        # The Bitnami postgresql subchart is gitignored (vendored locally, not in
+        # the repo), so a fresh CI checkout must fetch it before lint/template —
+        # mirrors the Makefile's `helm-deps`. Without it, `helm template` errors:
+        # "missing in charts/ directory: postgresql".
+        run: helm dependency build deploy/charts/baseline
 
       - name: Lint chart
         run: helm lint deploy/charts/baseline
