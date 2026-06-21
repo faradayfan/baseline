@@ -77,7 +77,8 @@ local-up: local-images helm-deps ## Build+load images and install the chart on D
 	  echo "WARN: host Ollama / qwen2.5:3b not found — run: ollama serve; ollama pull qwen2.5:3b; ollama pull nomic-embed-text"
 	helm upgrade --install baseline $(CHART) \
 	  --kube-context $(LOCAL_CONTEXT) -n baseline --create-namespace \
-	  -f deploy/local/values.yaml
+	  -f deploy/local/values.yaml \
+	  --set rollmeTimestamp=$$(date +%s)
 	@echo ""
 	@echo "Installed. Watch: kubectl --context $(LOCAL_CONTEXT) -n baseline get pods -w"
 	@echo "Baseline:    http://localhost:8080  (LoadBalancer -> localhost; no port-forward)"

@@ -6,6 +6,16 @@ fullnameOverride: ""
 
 replicaCount: 1
 
+# rollmeTimestamp forces a pod rollout on deploy even when the image TAG is
+# unchanged. Local dev rebuilds the same `baseline:dev` tag with new content, so
+# the Deployment spec is byte-identical and k8s won't restart the pods — the new
+# binary never runs. Setting this to a fresh value (e.g. `--set
+# rollmeTimestamp=$(date +%s)`) changes a pod-template annotation, which triggers
+# a rollout. Empty (the default) → no annotation, so prod/Pi (which deploy
+# immutable, uniquely-tagged images) are unaffected. The Makefile's `local-up`
+# sets it automatically.
+rollmeTimestamp: ""
+
 image:
   registry: ""          # empty for local; Pi overlay sets the in-cluster registry
   repository: baseline   # bare repo → gets the registry prefixed (see _helpers)

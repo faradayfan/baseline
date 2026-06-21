@@ -22,6 +22,11 @@ spec:
         app.kubernetes.io/name: baseline-ui
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: ui
+      {{- if .Values.rollmeTimestamp }}
+      annotations:
+        # Local dev: force a rollout when the image tag is reused with new content.
+        rollme: {{ .Values.rollmeTimestamp | quote }}
+      {{- end }}
     spec:
       containers:
         - name: ui
