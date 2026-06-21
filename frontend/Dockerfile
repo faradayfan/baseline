@@ -16,7 +16,11 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-FROM nginx:1.27-alpine
+# nginx:alpine (unversioned) tracks the freshest Alpine package rebuilds — it
+# carries materially fewer CVEs than a minor-pinned tag (which lags on apk
+# patches). The remaining unfixable findings are ignored with rationale in
+# .grype.yaml. Rebuilds pull current packages; the grype gate catches drift.
+FROM nginx:alpine
 # Template the nginx conf; the entrypoint envsubst's ${BACKEND_URL} at start.
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
