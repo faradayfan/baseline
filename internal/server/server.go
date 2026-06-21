@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -37,6 +38,18 @@ type Server struct {
 	// middleware are applied (outermost-first) around the whole router — e.g. the
 	// OTEL span middleware. Optional; set via Use.
 	middleware []func(http.Handler) http.Handler
+
+	// embedder embeds the `q` text for semantic fact search (§11.1). Optional —
+	// nil in standards-only / no-Ollama deployments, where /facts?q= falls back to
+	// substring. Set via SetEmbedder.
+	embedder Embedder
+}
+
+// Embedder embeds query text for semantic search. embed.Client satisfies it;
+// kept as an interface so the server package does not import embed directly and
+// tests can inject a deterministic stub.
+type Embedder interface {
+	Embed(ctx context.Context, text string) ([]float32, error)
 }
 
 // Use registers a middleware applied around the entire router (e.g. OTEL spans).
@@ -47,6 +60,14 @@ func (s *Server) Use(mw func(http.Handler) http.Handler) { s.middleware = append
 // workflow (the metrics.Metrics satisfies promotions.LatencyRecorder).
 func (s *Server) SetLatencyRecorder(r promotions.LatencyRecorder) {
 	s.promos.WithLatencyRecorder(r)
+}
+
+// SetEmbedder attaches the fact embedder, used both for semantic search (the
+// read path, via this server) and for embedding facts on activation (the write
+// path, via the promotion service). One embedder, both paths.
+func (s *Server) SetEmbedder(e Embedder) {
+	s.embedder = e
+	s.promos.WithEmbedder(e)
 }
 
 // New constructs a Server with the null memory source (standards-only). Use

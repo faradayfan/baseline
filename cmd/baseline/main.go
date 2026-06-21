@@ -14,6 +14,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel"
 
+	"github.com/faradayfan/baseline/internal/embed"
+	"github.com/faradayfan/baseline/internal/facts"
 	"github.com/faradayfan/baseline/internal/mcpbridge"
 	"github.com/faradayfan/baseline/internal/memory"
 	"github.com/faradayfan/baseline/internal/memory/mem0"
@@ -61,6 +63,25 @@ func main() {
 		return
 	}
 
+	emb := buildEmbedder(cfg)
+
+	// Embedding backfill mode (§11.1): embed every active fact whose embedding is
+	// NULL and exit. Run as a one-off Job after enabling semantic search, or as a
+	// CronJob to self-heal facts that activated during an embedder outage.
+	if os.Getenv("BASELINE_EMBED_BACKFILL") == "true" {
+		if emb == nil {
+			log.Error("embed backfill", "err", "EMBEDDER_URL not configured")
+			os.Exit(1)
+		}
+		res, err := facts.BackfillEmbeddings(ctx, st.Pool, emb)
+		if err != nil {
+			log.Error("embed backfill", "err", err)
+			os.Exit(1)
+		}
+		log.Info("embed backfill complete", "scanned", res.Scanned, "embedded", res.Embedded, "failed", res.Failed)
+		return
+	}
+
 	// Observability (§13): meter provider + per-request spans + named metrics.
 	ot := platform.SetupOTel("baseline")
 	defer func() { _ = ot.Shutdown(context.Background()) }()
@@ -75,6 +96,12 @@ func main() {
 	app := server.NewWithMemory(st.Pool, server.HeaderAuthenticator{}, memorySource(cfg))
 	app.Use(ot.SpanMiddleware)
 	app.SetLatencyRecorder(mx)
+	if emb != nil {
+		// Wires both paths: semantic /facts?q= search and fact embedding on
+		// activation. nil → search falls back to substring, facts activate
+		// without embeddings (standards-only / no-Ollama).
+		app.SetEmbedder(emb)
+	}
 
 	// MCP-over-stdio mode (M4): serve the thin tool bridge instead of HTTP. The
 	// principal comes from BASELINE_MCP_PRINCIPAL (dev seam; production resolves
@@ -128,6 +155,17 @@ func main() {
 // memorySource selects the memory backend adapter from config (§11). Config
 // validation has already guaranteed mem0 has a URL and the kind is known, so the
 // default arm (zep/letta not yet implemented) falls back to standards-only.
+// buildEmbedder constructs the fact embedder, or nil when EMBEDDER_URL is unset
+// (standards-only / no-Ollama: search degrades to substring, facts activate
+// without embeddings). Returns a concrete *embed.Client, which satisfies the
+// server's and promotions' Embedder interfaces.
+func buildEmbedder(cfg platform.Config) *embed.Client {
+	if cfg.EmbedderURL == "" {
+		return nil
+	}
+	return embed.New(cfg.EmbedderURL, cfg.EmbedderModel, cfg.EmbedderDims)
+}
+
 func memorySource(cfg platform.Config) memory.Source {
 	switch cfg.MemorySource {
 	case platform.MemoryMem0:

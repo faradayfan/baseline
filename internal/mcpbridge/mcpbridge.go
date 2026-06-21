@@ -78,7 +78,7 @@ func (b *Bridge) Server() *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search_facts",
-		Description: "Search active facts the caller can read. Optionally narrow with `tags` (comma-separated, ANY-match; authoritative facts always included). Maps to GET /facts.",
+		Description: "Search active facts the caller can read. With `q`, results are ranked by semantic relevance to the query (meaning, not exact words). Optionally narrow with `tags` (comma-separated, ANY-match; authoritative facts always included). Maps to GET /facts.",
 	}, wrap(b.searchFacts))
 
 	mcp.AddTool(s, &mcp.Tool{

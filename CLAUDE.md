@@ -22,10 +22,17 @@ API** for its LLM+embedder (self-hosted Ollama was too slow/weak on Pi CPUs). Th
 the **OSS** contract (unprefixed `/memories`, `/search`; `{results:[…]}` envelope; optional bearer).
 See [RUNNING.md](RUNNING.md).
 
-What remains **deferred-by-plan**, not unfinished: CI wiring, an OTEL exporter (instruments exist;
-production points `OTEL_*` at the collector), real OIDC/mTLS authenticators (the `Authenticator` seam
-exists; `HeaderAuthenticator` is dev-only), and semantic (embedding-ranked) `q` search (`/facts?q=`
-is substring for now).
+**CI is wired** (`.github/workflows/ci.yml`: full `go test ./...` incl. §14 conformance · frontend
+typecheck+build · helm lint+template) and **semantic fact search is implemented** — `/facts?q=` (and
+the MCP `search_facts` tool) embeds the query and ranks by pgvector cosine distance over
+`facts.embedding`; facts are embedded on activation (best-effort, degrades to NULL on embedder
+outage), `BASELINE_EMBED_BACKFILL=true` backfills NULLs, and entitlement scoping is preserved
+(ranking changes ORDER BY only, never the WHERE). With no embedder configured, `q` falls back to
+substring.
+
+What remains **deferred-by-plan**, not unfinished: an OTEL exporter (instruments exist;
+production points `OTEL_*` at the collector) and real OIDC/mTLS authenticators (the `Authenticator`
+seam exists; `HeaderAuthenticator` is dev-only).
 
 **[docs/SPEC.md](docs/SPEC.md) is the source of truth.** It is a locked, buildable spec (v0.2, all
 v1 decisions decided). Read it before implementing anything; the decisions in §18 are settled — do

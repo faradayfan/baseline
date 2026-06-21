@@ -28,10 +28,11 @@ var (
 // namespaces packages, each step in a single transaction so a transition and
 // its audit event commit atomically (§14.5).
 type Service struct {
-	pool    *pgxpool.Pool
-	ns      *namespaces.Repo
-	engines *autopromote.Registry
-	latency LatencyRecorder
+	pool     *pgxpool.Pool
+	ns       *namespaces.Repo
+	engines  *autopromote.Registry
+	latency  LatencyRecorder
+	embedder Embedder
 }
 
 // LatencyRecorder records the propose→active duration (approval_latency_seconds).
@@ -40,6 +41,20 @@ type Service struct {
 type LatencyRecorder interface {
 	RecordApprovalLatency(ctx context.Context, seconds float64)
 }
+
+// Embedder produces a fact's embedding vector. The embed.Client satisfies it;
+// kept as an interface so this package does not import embed (and so tests can
+// inject a deterministic stub). May be nil — embedding is best-effort and the
+// governance workflow never blocks on it (see embedActivatedFact).
+type Embedder interface {
+	Embed(ctx context.Context, text string) ([]float32, error)
+}
+
+// embedTimeout bounds the embedder call made inside the activation transaction so
+// a slow/hung Ollama can never stall an approval indefinitely — on timeout the
+// fact still activates with a NULL embedding (fail-open for SEARCH; governance
+// correctness is unaffected and the backfill will fill it in later).
+const embedTimeout = 5 * time.Second
 
 // NewService wires the workflow. engines may be nil (no auto-promotion anywhere);
 // when non-nil, namespaces whose policy names a registered engine are evaluated
@@ -53,6 +68,35 @@ func NewService(pool *pgxpool.Pool, ns *namespaces.Repo, engines *autopromote.Re
 func (s *Service) WithLatencyRecorder(r LatencyRecorder) *Service {
 	s.latency = r
 	return s
+}
+
+// WithEmbedder attaches the fact embedder and returns the service, for fluent
+// wiring at startup. nil → facts activate without embeddings (standards-only /
+// no-Ollama deployments), search falls back to substring.
+func (s *Service) WithEmbedder(e Embedder) *Service {
+	s.embedder = e
+	return s
+}
+
+// embedActivatedFact computes and stores a freshly-activated fact's embedding,
+// best-effort. ANY failure (no embedder configured, embedder down, timeout,
+// dimension mismatch) leaves embedding = NULL and returns nil: an external
+// embedder outage must never fail a governance transition. The fact is searchable
+// by substring meanwhile, and the backfill routine fills the NULL in later.
+//
+// Runs inside the caller's activation tx so the embedding commits atomically with
+// the activation — but under its own short timeout so it can't hold the row lock.
+func (s *Service) embedActivatedFact(ctx context.Context, tx pgx.Tx, factID uuid.UUID, f facts.Fact) {
+	if s.embedder == nil {
+		return
+	}
+	ectx, cancel := context.WithTimeout(ctx, embedTimeout)
+	defer cancel()
+	vec, err := s.embedder.Embed(ectx, facts.EmbedText(f))
+	if err != nil {
+		return // degrade: activate with NULL embedding, backfill later
+	}
+	_ = facts.SetEmbedding(ctx, tx, factID, vec)
 }
 
 // ProposeInput is the propose-time payload (§8.2).
@@ -211,6 +255,10 @@ func (s *Service) maybeAutoPromote(ctx context.Context, tx pgx.Tx, p *PromotionR
 	if err := facts.ActivateAuto(ctx, tx, p.FactID); err != nil {
 		return
 	}
+	// Best-effort embedding for semantic search (§11.1). Never blocks promotion.
+	if f, err := facts.Get(ctx, tx, p.FactID); err == nil {
+		s.embedActivatedFact(ctx, tx, p.FactID, f)
+	}
 	p.State = StateApproved
 	if err := updateStateAndReviews(ctx, tx, p.ID, p.State, p.Reviews); err != nil {
 		return
@@ -324,6 +372,10 @@ func (s *Service) activate(ctx context.Context, tx pgx.Tx, p *PromotionRequest, 
 	}
 	if err := facts.Activate(ctx, tx, p.FactID, approvers); err != nil {
 		return err
+	}
+	// Best-effort embedding for semantic search (§11.1). Never blocks activation.
+	if f, err := facts.Get(ctx, tx, p.FactID); err == nil {
+		s.embedActivatedFact(ctx, tx, p.FactID, f)
 	}
 	return audit.Write(ctx, tx, audit.Event{
 		Principal: finalApprover, Action: "fact.activated", SubjectType: "fact",

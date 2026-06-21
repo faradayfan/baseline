@@ -151,7 +151,7 @@ paths:
         - { name: canonical_key, in: query, schema: { type: string } }
         - { name: tag, in: query, schema: { type: string }, description: single-tag exact membership }
         - { name: tags, in: query, schema: { type: string }, description: "comma-separated; ANY-match. authoritative:true facts are always included" }
-        - { name: q, in: query, schema: { type: string }, description: substring over statement }
+        - { name: q, in: query, schema: { type: string }, description: "semantic search — embedded and ranked by cosine similarity over fact embeddings; falls back to substring over statement when no embedder is configured" }
         - { name: limit, in: query, schema: { type: integer } }
       responses:
         "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Fact" } } } } }

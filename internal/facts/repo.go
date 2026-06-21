@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pgvector/pgvector-go"
 )
 
 // ErrNotFound is returned when a fact lookup misses.
@@ -59,6 +62,49 @@ func Insert(ctx context.Context, q Querier, f Fact) (Fact, error) {
 	return f, nil
 }
 
+// SetEmbedding stores a fact's embedding vector (§11.1). Baseline owns its fact
+// embeddings, decoupled from any memory backend. The vector width must equal the
+// facts.embedding vector(N) column — the embedder's Dims guard enforces this
+// before the vector ever reaches here. Called on the write path after activation
+// (best-effort; a NULL embedding is tolerated — see promotions.activate) and by
+// the backfill routine.
+func SetEmbedding(ctx context.Context, q Querier, id uuid.UUID, vec []float32) error {
+	_, err := q.Exec(ctx, `UPDATE facts SET embedding = $2 WHERE id = $1`,
+		id, pgvector.NewVector(vec))
+	if err != nil {
+		return fmt.Errorf("facts: set embedding: %w", err)
+	}
+	return nil
+}
+
+// EmbedText renders the text fed to the embedder for a fact: the structured
+// subject (its identity) followed by the free-text statement. Including the
+// subject improves recall for queries phrased around what a fact is ABOUT, not
+// just its prose. Deterministic — qualifiers are sorted — so re-embedding the
+// same fact yields the same input. Must mirror the QUERY side (raw query text is
+// embedded as-is; the asymmetry is intentional: facts carry structure, queries
+// don't).
+func EmbedText(f Fact) string {
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(f.Subject.Type))
+	if sc := strings.TrimSpace(f.Subject.Scope); sc != "" {
+		b.WriteString(" ")
+		b.WriteString(sc)
+	}
+	if len(f.Subject.Qualifiers) > 0 {
+		quals := make([]string, 0, len(f.Subject.Qualifiers))
+		for k, v := range f.Subject.Qualifiers {
+			quals = append(quals, strings.TrimSpace(k)+"="+strings.TrimSpace(v))
+		}
+		sort.Strings(quals)
+		b.WriteString(" ")
+		b.WriteString(strings.Join(quals, " "))
+	}
+	b.WriteString("\n")
+	b.WriteString(f.Statement)
+	return b.String()
+}
+
 // Get returns one fact by ID.
 func Get(ctx context.Context, q Querier, id uuid.UUID) (Fact, error) {
 	return scanOne(q.QueryRow(ctx, selectCols+` WHERE id = $1`, id))
@@ -71,7 +117,8 @@ type ListFilter struct {
 	CanonicalKey *string
 	Tag          *string  // single-tag exact membership (legacy)
 	Tags         []string // ANY-of these tags (OR); authoritative:true and tier:always always pass
-	Text         *string  // q: case-insensitive substring over statement (pre-semantic)
+	Text         *string  // q: case-insensitive substring (fallback when no QueryVec)
+	QueryVec     []float32 // q embedded: rank by cosine distance (semantic search)
 	Limit        int
 }
 
@@ -102,10 +149,23 @@ func List(ctx context.Context, q Querier, f ListFilter) ([]Fact, error) {
 		// injection tier). Mirrors contextsvc's read-path filter.
 		add(" AND (tags && $%d OR 'authoritative:true' = ANY(tags) OR 'tier:always' = ANY(tags))", f.Tags)
 	}
-	if f.Text != nil {
+	// Text search: semantic when an embedded query vector is supplied, else
+	// substring fallback. QueryVec only changes the ORDER BY — it never adds a
+	// WHERE clause, so entitlement scoping (Namespaces) and every other filter
+	// still constrain the result set identically. Vector ranking can reorder but
+	// never widen what the caller may see.
+	if f.QueryVec != nil {
+		// Rank by cosine distance (<=>) via the HNSW index. NULLS LAST keeps
+		// facts that failed to embed (transient embedder outage, or pre-backfill)
+		// findable, ranked behind the embedded ones, rather than dropping them.
+		args = append(args, pgvector.NewVector(f.QueryVec))
+		sql += fmt.Sprintf(" ORDER BY embedding <=> $%d ASC NULLS LAST", len(args))
+	} else if f.Text != nil {
 		add(" AND statement ILIKE '%%' || $%d || '%%'", *f.Text)
+		sql += " ORDER BY created_at DESC"
+	} else {
+		sql += " ORDER BY created_at DESC"
 	}
-	sql += " ORDER BY created_at DESC"
 	if f.Limit > 0 {
 		add(" LIMIT $%d", f.Limit)
 	}

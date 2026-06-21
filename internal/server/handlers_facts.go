@@ -52,7 +52,19 @@ func (s *Server) listFacts(w http.ResponseWriter, r *http.Request) {
 		filter.Tags = tags
 	}
 	if v := q.Get("q"); v != "" {
-		filter.Text = &v
+		// Semantic search: embed the query and rank by cosine distance. If no
+		// embedder is configured, or the embedder call fails, fall back to
+		// substring — search degrades but never errors. Entitlement scoping
+		// (filter.Namespaces) is unaffected either way.
+		if s.embedder != nil {
+			if vec, err := s.embedder.Embed(r.Context(), v); err == nil {
+				filter.QueryVec = vec
+			} else {
+				filter.Text = &v
+			}
+		} else {
+			filter.Text = &v
+		}
 	}
 	if v := q.Get("limit"); v != "" {
 		filter.Limit, _ = strconv.Atoi(v)
