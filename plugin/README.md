@@ -214,10 +214,29 @@ restarting the session.
 
 ## Local development
 
-```bash
-claude --plugin-dir ./plugin      # load this directory as a plugin without a marketplace
+The scripts are plain bash + python3 (no build step). The dev loop for hook/MCP
+changes goes through the marketplace:
+
+```text
+edit plugin/ → commit → push → /plugin update baseline@baseline → /reload-plugins
 ```
 
-The scripts are plain bash + python3 (no build step). They are the productized
-form of the repo-local hooks in `.claude/` — once you adopt the plugin, those can
-be removed.
+`/reload-plugins` switches the running hooks/MCP to the freshly-updated copy
+without restarting the session. It's slower than ideal (every change needs a
+commit + push), but it's reliable.
+
+> **Tried and didn't work (VS Code extension):** loading the working tree in place
+> via a `~/.claude/skills/baseline-dev` symlink (`@skills-dir` plugin) — the
+> extension did not register a symlinked skills-dir entry, so the hooks never
+> fired. `claude --plugin-dir ./plugin` is the CLI-only equivalent (no extension
+> support). If you find a working live-reload path for the extension, replace this
+> note.
+
+To test a hook change without going through the plugin at all, invoke the script
+directly with a crafted transcript (this is how the hooks are unit-tested):
+
+```bash
+T=$(mktemp); printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"[remember:procedural: test]"}]}}' > "$T"
+CLAUDE_PLUGIN_OPTION_BACKEND_URL=http://localhost:8080 CLAUDE_PLUGIN_OPTION_PRINCIPAL=you \
+  BASELINE_CAPTURE=1 CLAUDE_PROJECT_DIR=. bash plugin/scripts/capture-memory.sh <<< "{\"transcript_path\":\"$T\"}"
+```

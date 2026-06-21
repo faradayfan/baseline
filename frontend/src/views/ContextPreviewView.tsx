@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useApi } from "../api";
 import type { ContextItem } from "../api";
 import { usePrincipal } from "../principal";
-import { Async, TagChips } from "../components";
+import { Async, TagChips, MemoryType } from "../components";
 
 // ContextPreviewView renders exactly what an agent receives from GET /context as
 // the selected principal — the dogfood view. Facts rank above memories;
@@ -70,7 +70,13 @@ export default function ContextPreviewView() {
                       {it.canonical_key ? (
                         <span className="font-mono text-xs text-muted">{it.canonical_key}</span>
                       ) : null}
-                      <TagChips tags={it.tags} />
+                      {/* Facts carry tags; memories carry a cognitive type in
+                          metadata.type (Mem0 has no tags). Show whichever applies. */}
+                      {it.source === "memory" ? (
+                        <MemoryType metadata={it.metadata} />
+                      ) : (
+                        <TagChips tags={it.tags} />
+                      )}
                     </div>
                   </div>
                 </li>

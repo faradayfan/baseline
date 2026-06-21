@@ -43,6 +43,20 @@ export function TagChips({ tags }: { tags?: string[] }) {
   );
 }
 
+// MemoryType renders a memory's cognitive type from its `metadata.type`
+// (semantic | procedural | episodic). Memories come from Mem0 and have no `tags`
+// — the type lives in metadata — so this is the memory-side analog of TagChips.
+const memTypeColor: Record<string, string> = {
+  semantic: "bg-sky-100 text-sky-800",
+  procedural: "bg-violet-100 text-violet-800",
+  episodic: "bg-amber-100 text-amber-800",
+};
+export function MemoryType({ metadata }: { metadata?: Record<string, unknown> }) {
+  const t = metadata && typeof metadata.type === "string" ? metadata.type : undefined;
+  if (!t) return <span className="text-muted">—</span>;
+  return <span className={`chip ${memTypeColor[t] ?? "bg-gray-100 text-gray-700"}`}>type:{t}</span>;
+}
+
 // AuditTimeline renders a fact's append-only history (oldest → newest).
 export function AuditTimeline({ events }: { events: AuditEvent[] }) {
   if (events.length === 0) return <p className="text-muted">No audit events.</p>;
