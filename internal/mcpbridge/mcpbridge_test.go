@@ -79,6 +79,7 @@ func TestTools_Listed(t *testing.T) {
 	want := map[string]bool{
 		"get_context": false, "search_facts": false, "propose_fact": false,
 		"list_my_promotions": false, "review_promotion": false,
+		"list_namespaces": false, "submit_promotion": false,
 	}
 	for _, tool := range res.Tools {
 		want[tool.Name] = true
@@ -287,6 +288,72 @@ func TestListMyPromotions_ScopedToCaller(t *testing.T) {
 	}
 	if !containsStr(bodyText(t, res), "alice") {
 		t.Errorf("expected alice's promotion, got %s", bodyText(t, res))
+	}
+}
+
+// TestListNamespaces_MapsToREST asserts list_namespaces returns the namespaces
+// the caller is entitled to — the discovery step that gives an agent the
+// target_namespace id for propose_fact.
+func TestListNamespaces_MapsToREST(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	cs, pool := connect(t, "alice")
+	org := seedNS(t, pool, "org", "org")
+	grant(t, pool, "alice", org, "reader")
+
+	res := call(t, cs, "list_namespaces", map[string]any{})
+	if res.IsError {
+		t.Fatalf("list_namespaces errored: %v", res.Content)
+	}
+	body := bodyText(t, res)
+	if !containsStr(body, org.String()) || !containsStr(body, "org") {
+		t.Errorf("expected the entitled namespace (id + name) in result, got %s", body)
+	}
+}
+
+// TestSubmitPromotion_AdvancesToReview asserts the full proposer journey through
+// the MCP tools: list_namespaces → propose_fact (pending) → submit_promotion
+// (in_review). This is the gap dogfooding surfaced — without submit_promotion a
+// proposed fact was stuck in pending, unreachable by reviewers.
+func TestSubmitPromotion_AdvancesToReview(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx := context.Background()
+	cs, pool := connect(t, "alice")
+	org := seedNS(t, pool, "org", "org")
+	grant(t, pool, "alice", org, "contributor")
+
+	// propose → pending
+	propose := call(t, cs, "propose_fact", map[string]any{
+		"target_namespace":   org.String(),
+		"proposed_statement": "deploys go through CI",
+		"subject":            map[string]any{"type": "deploy.policy"},
+	})
+	if propose.IsError {
+		t.Fatalf("propose_fact errored: %v", propose.Content)
+	}
+	var id, state string
+	if err := pool.QueryRow(ctx,
+		`SELECT id, state FROM promotion_requests WHERE proposer='alice'`).Scan(&id, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "pending" {
+		t.Fatalf("freshly proposed promotion should be pending, got %s", state)
+	}
+
+	// submit → in_review
+	sub := call(t, cs, "submit_promotion", map[string]any{"promotion_id": id})
+	if sub.IsError {
+		t.Fatalf("submit_promotion errored: %v", sub.Content)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT state FROM promotion_requests WHERE id=$1`, id).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "in_review" {
+		t.Errorf("after submit_promotion, state = %s, want in_review", state)
 	}
 }
 

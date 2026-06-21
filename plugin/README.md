@@ -14,8 +14,11 @@ It bundles three things:
    Baseline's out-of-band `/v1/memories` (→ Mem0) with its cognitive type as
    metadata. **Opt-in** (see below) so it does not fire in unrelated repos.
 3. **MCP tools** (HTTP MCP server) — exposes `get_context`, `search_facts`,
-   `propose_fact`, `list_my_promotions`, `review_promotion` against
-   `<backend_url>/mcp`, authenticated per-user with `X-Baseline-Principal`.
+   `list_namespaces`, `propose_fact`, `submit_promotion`, `list_my_promotions`,
+   `review_promotion` against `<backend_url>/mcp`, authenticated per-user with
+   `X-Baseline-Principal`. Together these let an agent walk the whole authoring
+   flow: discover a namespace → propose a fact → submit it for review → (a
+   different reviewer) approve it.
 
 ## Tiered injection — keeping context clean as facts scale
 

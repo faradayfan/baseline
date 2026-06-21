@@ -49,7 +49,7 @@ flowchart TB
 
     %% --- agent / client edges ---
     CC -- "SessionStart + UserPromptSubmit hooks<br/>GET /v1/context (+tags, include_memories)" --> SVC
-    CC -- "MCP tools: search_facts · propose_fact ·<br/>get_context · review_promotion<br/>(HTTP /mcp, X-Baseline-Principal)" --> SVC
+    CC -- "MCP tools: search_facts · get_context ·<br/>list_namespaces · propose_fact · submit_promotion ·<br/>list_my_promotions · review_promotion<br/>(HTTP /mcp, X-Baseline-Principal)" --> SVC
     CC -- "Stop hook: POST /v1/memories<br/>[remember:TYPE:] verbatim (infer=false)" --> SVC
     DEV -- "HTTP" --> UI
     UI -- "GET /v1/facts, /promotions, /audit" --> SVC
@@ -80,7 +80,7 @@ flowchart TB
 | From                    | To                       | Protocol / path                                          | Purpose                                                                                            |
 | ----------------------- | ------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Claude Code (hooks)     | baseline `:8080`         | `GET /v1/context`                                        | inject tier'd facts (+ memories) into the prompt                                                   |
-| Claude Code (MCP)       | baseline `:8080/mcp`     | MCP-over-HTTP, `X-Baseline-Principal`                    | `search_facts` (semantic), `propose_fact`, `get_context`, `review_promotion`, `list_my_promotions` |
+| Claude Code (MCP)       | baseline `:8080/mcp`     | MCP-over-HTTP, `X-Baseline-Principal`                    | `search_facts` (semantic), `get_context`, `list_namespaces`, `propose_fact`, `submit_promotion`, `list_my_promotions`, `review_promotion` |
 | Claude Code (Stop hook) | baseline `:8080`         | `POST /v1/memories`                                      | capture `[remember:TYPE:]` verbatim (`infer=false`)                                                |
 | Dashboard               | baseline `:8080`         | `GET /v1/facts · /promotions · /audit`                   | read-only governance views                                                                         |
 | Baseline                | **its own** pgvector     | pgx/v5                                                   | facts, namespaces, audit, **fact embeddings** (source of truth)                                    |

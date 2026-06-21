@@ -82,18 +82,31 @@ func (b *Bridge) Server() *mcp.Server {
 	}, wrap(b.searchFacts))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "propose_fact",
-		Description: "Propose a memory/statement for promotion into a namespace. Optional `tags` (string array) label the fact for read-path filtering. Maps to POST /promotions.",
+		Name:        "list_namespaces",
+		Description: "List the namespaces (user/team/project/org scopes) the caller is entitled to, with their ids. Call this FIRST to find the `target_namespace` id for propose_fact — namespaces are addressed by id, not name. Maps to GET /namespaces.",
+	}, wrap(b.listNamespaces))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "propose_fact",
+		Description: "Propose a new fact for promotion into a namespace. Step 1 of the workflow: this creates the proposal in `pending`; then call submit_promotion to send it for review, after which a DIFFERENT person (you can't approve your own) calls review_promotion to approve it. " +
+			"Required: `target_namespace` (an id from list_namespaces) and `proposed_statement` (the fact text). " +
+			"`subject` is the fact's STRUCTURED identity — {type: 'dotted.category', scope?: 'global', qualifiers?: {k:v}} — supplied separately from the prose, never parsed from it; it determines conflict/supersession (a new fact with the same subject in a namespace supersedes the old one). " +
+			"Optional `tags` (e.g. tier:relevant, tier:always, a topic) control read-path injection. Maps to POST /promotions.",
 	}, wrap(b.proposeFact))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "submit_promotion",
+		Description: "Submit your own pending proposal for review (step 2, proposer-only). Moves a promotion from `pending` to `in_review` so reviewers can act on it. A freshly proposed fact is NOT yet reviewable until submitted. Maps to POST /promotions/{id}/submit.",
+	}, wrap(b.submitPromotion))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_my_promotions",
-		Description: "List the caller's own promotion requests. Maps to GET /promotions?proposer=me.",
+		Description: "List the caller's own promotion requests (optionally filter by `state`: pending|in_review|approved|rejected|changes_requested). Use to find a promotion id and track its state. Maps to GET /promotions?proposer=me.",
 	}, wrap(b.listMyPromotions))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "review_promotion",
-		Description: "Approve, reject, or request changes on a promotion. Maps to the promotion review actions.",
+		Description: "Approve, reject, or request changes on someone else's promotion (step 3, reviewer-only). Separation of duties is enforced: you can NEVER approve a promotion you proposed. `action` ∈ approve|reject|request-changes. On enough distinct approvals the fact becomes active. Maps to the promotion review actions.",
 	}, wrap(b.reviewPromotion))
 
 	return s
@@ -136,6 +149,12 @@ type proposeFactIn struct {
 	Subject            map[string]any `json:"subject"`
 	CandidateMemoryIDs []string       `json:"candidate_memory_ids,omitempty"`
 	Tags               []string       `json:"tags,omitempty"` // labels for read-path filtering
+}
+
+type listNamespacesIn struct{}
+
+type submitPromotionIn struct {
+	PromotionID string `json:"promotion_id"`
 }
 
 type listMyPromotionsIn struct {
@@ -193,6 +212,17 @@ func (b *Bridge) proposeFact(ctx context.Context, in proposeFactIn) (*mcp.CallTo
 		"tags":                 in.Tags,
 	}
 	return b.call(ctx, http.MethodPost, "/v1/promotions", body)
+}
+
+func (b *Bridge) listNamespaces(ctx context.Context, _ listNamespacesIn) (*mcp.CallToolResult, any, error) {
+	return b.call(ctx, http.MethodGet, "/v1/namespaces", nil)
+}
+
+func (b *Bridge) submitPromotion(ctx context.Context, in submitPromotionIn) (*mcp.CallToolResult, any, error) {
+	if in.PromotionID == "" {
+		return errorResult("promotion_id is required"), nil, nil
+	}
+	return b.call(ctx, http.MethodPost, "/v1/promotions/"+url.PathEscape(in.PromotionID)+"/submit", nil)
 }
 
 func (b *Bridge) listMyPromotions(ctx context.Context, in listMyPromotionsIn) (*mcp.CallToolResult, any, error) {
