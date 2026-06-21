@@ -1,0 +1,72 @@
+# Dependabot — automated dependency updates.
+#
+# Each ecosystem groups its updates into a single PR (group-by-scope), and uses a
+# `fix(deps…)` Conventional Commit prefix so Release Please treats a merged update
+# as a patch bump and cuts a release. include: scope adds the dependency scope
+# (e.g. fix(deps):, fix(deps-dev):) to the commit subject.
+version: 2
+updates:
+  # --- Go modules (service + baseline-mcp) ---------------------------------
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: fix
+      include: scope
+    groups:
+      go-modules:
+        patterns:
+          - "*"
+
+  # --- Frontend npm (the dashboard) ---------------------------------------
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: fix
+      include: scope
+    groups:
+      # Split prod vs dev so a dev-tooling bump doesn't ride with a runtime dep.
+      frontend-prod:
+        dependency-type: production
+        patterns:
+          - "*"
+      frontend-dev:
+        dependency-type: development
+        patterns:
+          - "*"
+
+  # --- GitHub Actions used in the workflows -------------------------------
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: fix
+      include: scope
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # --- Docker base images (FROM lines) ------------------------------------
+  # One entry per Dockerfile location dependabot scans.
+  - package-ecosystem: docker
+    directories:
+      - "/"
+      - "/frontend"
+      - "/deploy/postgres"
+      - "/deploy/mem0-api"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: fix
+      include: scope
+    groups:
+      docker-images:
+        patterns:
+          - "*"
