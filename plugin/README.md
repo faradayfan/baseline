@@ -136,6 +136,22 @@ With neither present, the `Stop` hook is a no-op. With either, a reply containin
 `[remember: John prefers pnpm]` posts that memory to Baseline; Mem0 runs its own
 extraction and it later surfaces in `/context` as `source: memory`.
 
+### The agent is *taught* the convention (only when opted in)
+
+Enabling capture also turns on a second `SessionStart` hook
+(`inject-capture-guide.sh`) that injects a short instruction teaching the agent the
+`[remember:TYPE: …]` convention, the three types, and — emphatically — **when not to
+capture**. This is gated by the *same* opt-in (`.baseline-capture` / `BASELINE_CAPTURE`),
+so unrelated repos get neither the capture path nor the instruction.
+
+The guidance biases hard toward **not** capturing: capture only durable, reusable,
+user-confirmed facts/rules — never inferences, transient task detail, or chatter. The
+mechanism for unprompted capture exists, but the agent is instructed to use it
+sparingly, because the failure mode that bites is noisy/duplicate memories someone
+then has to curate, not the occasional missed one. Without this hook, capture would
+only ever fire when an agent already happened to know the syntax — non-portable; with
+it, capture is a taught, bounded behavior.
+
 ### Typing a captured memory
 
 A capture can carry a **cognitive type** — `semantic` (what's true), `procedural`
