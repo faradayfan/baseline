@@ -135,12 +135,38 @@ if not last_text:
 # trigger by merely talking about the syntax.
 TYPES = {"semantic", "procedural", "episodic"}
 
+# A capture is a PLACEHOLDER (illustrative syntax, not a real memory) when its text
+# is just an ellipsis / angle-bracket stand-in / "text" filler. This is the actual
+# recurring-bug fix: the strict regex still matches `[remember:procedural: …]` when
+# that span is written as an EXAMPLE while explaining the convention (in prose, the
+# README, the capture-guide). `…` is a valid text capture, so the regex can't
+# exclude it — but it is never a memory anyone wants. The "don't capture the syntax"
+# instruction is prose to the agent; the hook must ENFORCE it, since the agent
+# doesn't run the hook. Reject these spans outright.
+#
+# Match is on the placeholder SHAPE, not a blocklist of phrases: text that, once
+# stripped of ellipses / <…>-brackets / surrounding quotes, has no real content.
+def is_placeholder(text):
+    t = text.strip()
+    # Bare ellipsis forms: "…", "...", "… …", unicode or ascii.
+    if re.fullmatch(r"[.…\s]+", t):
+        return True
+    # Angle-bracket stand-ins: "<the thing to remember>", "<text>", "<...>".
+    if re.fullmatch(r"<[^>]*>", t):
+        return True
+    # Generic filler tokens used in docs/examples.
+    if t.strip("<>\"'` ").lower() in {"text", "the thing to remember",
+                                      "the thing to remember, one line",
+                                      "your memory here", "memory", "example"}:
+        return True
+    return False
+
 spans = []
 for mtype, text in re.findall(
         r"\[remember:(semantic|procedural|episodic):\s*([^\]\n]+?)\s*\]",
         last_text, re.IGNORECASE):
     text = text.strip()
-    if text:
+    if text and not is_placeholder(text):
         spans.append((mtype.lower(), text))
 if not spans:
     sys.exit(0)

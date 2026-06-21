@@ -1,0 +1,103 @@
+name: CI
+
+# Build, vet, and test on every push and PR. This is the CI the project's own
+# governance facts assert ("All production deploys must go through CI", "Run the
+# test suite before committing") — now actually enforced.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---- Go service: build + vet + FULL test suite (unit + integration + §14
+  # conformance). The integration/conformance tests spin up a pgvector container
+  # via testcontainers; GitHub-hosted Ubuntu runners ship Docker, so this works
+  # with no extra services. Tests gate integration behind testing.Short(), so a
+  # plain `go test ./...` runs everything. -------------------------------------
+  go:
+    name: Go (build · vet · full test suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Pin to the asdf-pinned toolchain (.tool-versions / go.mod: 1.26.4).
+          go-version: "1.26.4"
+          check-latest: false
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (full suite — needs Docker for the pgvector testcontainer)
+        # Not -short: run unit + integration + conformance. Docker is present on
+        # the runner; testcontainers manages the pgvector container lifecycle.
+        run: go test ./...
+
+  # ---- Frontend dashboard: typecheck + production build. -----------------------
+  frontend:
+    name: Frontend (typecheck · build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Lockfile is v9 → pnpm 9.
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build
+        # `build` is `tsc -b && vite build` — compiles and produces the dist bundle.
+        run: pnpm run build
+
+  # ---- Helm chart: lint + template render (catches chart regressions). ---------
+  helm:
+    name: Helm (lint · template)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          # Match the pinned helm in .tool-versions.
+          version: "3.16.4"
+
+      - name: Lint chart
+        run: helm lint deploy/charts/baseline
+
+      - name: Template render (smoke — fails on bad templates/values)
+        run: helm template baseline deploy/charts/baseline > /dev/null
