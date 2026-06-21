@@ -1,6 +1,67 @@
 package main
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+// TestSplitToolAndFlags pins the argv-splitting that pulls the positional tool
+// name out before flag parsing. Two bugs this guards against, both found by
+// dogfooding:
+//  1. `baseline-mcp <tool> --flag…` — Go's flag pkg stops at the first non-flag,
+//     so flags AFTER the tool name were silently dropped (arguments came out {}).
+//  2. A flag's VALUE (e.g. the `you` in `--principal you`) must not be mistaken
+//     for the tool name when the tool comes later or not at all.
+func TestSplitToolAndFlags(t *testing.T) {
+	cases := []struct {
+		name     string
+		argv     []string
+		wantTool string
+		wantRest []string
+	}{
+		{
+			name:     "tool first, flags after (the natural form)",
+			argv:     []string{"propose_fact", "--principal", "john", "--arg", "k=v"},
+			wantTool: "propose_fact",
+			wantRest: []string{"--principal", "john", "--arg", "k=v"},
+		},
+		{
+			name:     "flags before tool",
+			argv:     []string{"--principal", "john", "list_namespaces"},
+			wantTool: "list_namespaces",
+			wantRest: []string{"--principal", "john"},
+		},
+		{
+			name:     "flag value must NOT be taken as the tool",
+			argv:     []string{"--principal", "john", "--list-tools"},
+			wantTool: "",
+			wantRest: []string{"--principal", "john", "--list-tools"},
+		},
+		{
+			name:     "--flag=value form, then tool",
+			argv:     []string{"--principal=john", "search_facts", "--arg", "q=x"},
+			wantTool: "search_facts",
+			wantRest: []string{"--principal=john", "--arg", "q=x"},
+		},
+		{
+			name:     "bool flag then tool (bool takes no value)",
+			argv:     []string{"--raw", "list_namespaces"},
+			wantTool: "list_namespaces",
+			wantRest: []string{"--raw"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tool, rest := splitToolAndFlags(c.argv)
+			if tool != c.wantTool {
+				t.Errorf("tool = %q, want %q", tool, c.wantTool)
+			}
+			if !reflect.DeepEqual(rest, c.wantRest) {
+				t.Errorf("rest = %#v, want %#v", rest, c.wantRest)
+			}
+		})
+	}
+}
 
 // TestSmartValue covers the JSON-literal-vs-string heuristic that lets
 // --arg subject='{...}' and --arg tags='[...]' work while keeping

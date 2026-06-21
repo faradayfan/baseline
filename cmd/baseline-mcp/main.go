@@ -59,7 +59,49 @@ func (a *argList) Set(v string) error {
 	return nil
 }
 
+// valueFlags are the flags that consume the following argv element as their
+// value (vs. --flag=value or bool flags). splitToolAndFlags needs this so it does
+// not mistake a flag's value (e.g. the `you` in `--principal you`) for the tool.
+var valueFlags = map[string]bool{
+	"--url": true, "--principal": true, "--token": true,
+	"--json": true, "--arg": true,
+	"-url": true, "-principal": true, "-token": true, "-json": true, "-arg": true,
+}
+
+// splitToolAndFlags separates the positional tool name from the flag arguments,
+// so the natural form `baseline-mcp <tool> --flag…` works. Go's flag package
+// stops parsing at the first non-flag token, which would otherwise silently drop
+// every flag after the tool name. We pull the FIRST bare (non-flag, non-flag-
+// value) token out as the tool and hand the rest to flag.Parse. Returns an empty
+// tool when there is none (e.g. `--list-tools`).
+func splitToolAndFlags(argv []string) (tool string, rest []string) {
+	expectValue := false
+	for _, a := range argv {
+		switch {
+		case expectValue:
+			// This token is the value for the preceding value-flag — keep it.
+			expectValue = false
+			rest = append(rest, a)
+		case strings.HasPrefix(a, "-"):
+			rest = append(rest, a)
+			// `--flag value` form consumes the next token; `--flag=value` doesn't.
+			if valueFlags[a] && !strings.Contains(a, "=") {
+				expectValue = true
+			}
+		case tool == "":
+			tool = a // the first bare token is the tool name
+		default:
+			rest = append(rest, a) // extra positionals (none expected) pass through
+		}
+	}
+	return tool, rest
+}
+
 func run(argv []string) error {
+	// Pull the positional tool name out before flag parsing (see
+	// splitToolAndFlags) so the tool name can come first while flags still parse.
+	tool, rest := splitToolAndFlags(argv)
+
 	fs := flag.NewFlagSet("baseline-mcp", flag.ContinueOnError)
 	var (
 		url       = fs.String("url", envOr("BASELINE_MCP_URL", envOr("BASELINE_URL", "http://localhost:8080")), "Baseline base URL (the /mcp path is appended)")
@@ -76,7 +118,7 @@ func run(argv []string) error {
 		fmt.Fprintln(os.Stderr, "       baseline-mcp --list-tools")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(argv); err != nil {
+	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 
@@ -84,11 +126,10 @@ func run(argv []string) error {
 		return rpc(*url, *principal, *token, "tools/list", map[string]any{}, *raw)
 	}
 
-	if fs.NArg() < 1 {
+	if tool == "" {
 		fs.Usage()
 		return errors.New("a tool name is required")
 	}
-	tool := fs.Arg(0)
 
 	arguments, err := buildArgs(*jsonArgs, args)
 	if err != nil {
