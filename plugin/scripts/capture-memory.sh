@@ -66,9 +66,16 @@ path = event.get("transcript_path")
 if not path or not os.path.exists(path):
     sys.exit(0)
 
-# Find the last assistant message's text in the JSONL transcript.
+# Collect assistant text from the CURRENT TURN — every assistant text block since
+# the most recent user message. A single turn produces many assistant messages
+# (text interleaved with tool_use), and a [remember:] marker usually sits in an
+# earlier text block, not the final message (which is often a tool_use with no
+# text). Reading only the last message silently misses the marker; resetting the
+# buffer on each user message scopes capture to this turn (so prior turns' markers
+# aren't re-captured — Stop fires once per turn).
 last_text = None
 try:
+    turn_chunks = []
     with open(path, "r") as f:
         for line in f:
             line = line.strip()
@@ -78,16 +85,22 @@ try:
                 rec = json.loads(line)
             except Exception:
                 continue
-            if rec.get("type") != "assistant":
+            rtype = rec.get("type")
+            if rtype == "user":
+                turn_chunks = []  # new turn — drop any prior assistant text
+                continue
+            if rtype != "assistant":
                 continue
             parts = rec.get("message", {}).get("content", [])
             if isinstance(parts, str):
-                last_text = parts
+                if parts:
+                    turn_chunks.append(parts)
             else:
-                texts = [p.get("text", "") for p in parts
-                         if isinstance(p, dict) and p.get("type") == "text"]
-                if texts:
-                    last_text = "\n".join(texts)
+                for p in parts:
+                    if isinstance(p, dict) and p.get("type") == "text" and p.get("text"):
+                        turn_chunks.append(p["text"])
+    if turn_chunks:
+        last_text = "\n".join(turn_chunks)
 except Exception:
     sys.exit(0)
 
