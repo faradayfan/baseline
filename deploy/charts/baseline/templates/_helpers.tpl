@@ -64,3 +64,23 @@ Usage: {{ include "baseline.postgresDSN" . }}
 {{- printf "%s-secrets" .Release.Name -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Embedder env vars (EMBEDDER_URL/MODEL/DIMS) for Baseline's own fact embedder.
+Emitted only when embedder.url is set — empty url → no env → server runs with a
+nil embedder (substring search, NULL fact embeddings). Shared by the deployment
+(write+read paths) and the reaper cronjob (the embed-backfill mode runs there).
+Usage: {{- include "baseline.embedderEnv" . | nindent 12 }}
+*/}}
+{{- define "baseline.embedderEnv" -}}
+{{- with .Values.embedder -}}
+{{- if .url }}
+- name: EMBEDDER_URL
+  value: {{ .url | quote }}
+- name: EMBEDDER_MODEL
+  value: {{ .model | default "nomic-embed-text" | quote }}
+- name: EMBEDDER_DIMS
+  value: {{ .dims | default 768 | quote }}
+{{- end -}}
+{{- end -}}
+{{- end -}}

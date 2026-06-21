@@ -16,6 +16,13 @@ image:
 
 memorySource: mem0
 
+# Baseline's own fact embedder for semantic /facts?q= search, pointed at the same
+# native-Mac Ollama Mem0 uses (host.docker.internal). nomic-embed-text, 768 dims.
+embedder:
+  url: "http://host.docker.internal:11434"
+  model: "nomic-embed-text"
+  dims: 768
+
 service:
   type: LoadBalancer   # Docker Desktop binds this to localhost:8080 (no annotation)
   port: 8080

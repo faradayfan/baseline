@@ -15,6 +15,19 @@ image:
 # memorySource selects the memory backend: none (standards-only) | mem0.
 memorySource: none
 
+# embedder configures Baseline's OWN fact embedder (§11.1), used for semantic
+# /facts?q= search and to embed facts on activation. This is independent of Mem0's
+# embedder (mem0.* below) — Baseline never shares vectors with the memory backend.
+# Leave url empty to disable: search falls back to substring and facts activate
+# without embeddings (standards-only / no-Ollama). When set, dims MUST equal the
+# facts.embedding vector(N) column width (768) or the server fails closed at start.
+embedder:
+  # e.g. http://host.docker.internal:11434 for native Ollama on the host, or an
+  # in-cluster Ollama service URL. Empty → embedder disabled (substring fallback).
+  url: ""
+  model: "nomic-embed-text"
+  dims: 768
+
 # Extra plain env vars for the server (non-secret).
 env: {}
 

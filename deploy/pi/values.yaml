@@ -16,6 +16,11 @@ image:
 
 memorySource: mem0      # Phase 2: read personal memories from the in-cluster Mem0.
 
+# embedder deliberately UNSET on the Pi: there is no fast local Ollama here (Mem0
+# uses the OpenAI API for the same reason). Baseline therefore runs without a fact
+# embedder — /facts?q= falls back to substring. Point embedder.url at an Ollama (or
+# add an OpenAI-compatible embedder adapter) to enable semantic search on the Pi.
+
 service:
   type: LoadBalancer
   port: 8080

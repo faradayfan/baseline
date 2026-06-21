@@ -51,6 +51,7 @@ spec:
               value: {{ .Values.memorySource | quote }}
             - name: BASELINE_MCP_HTTP
               value: "true"
+            {{- include "baseline.embedderEnv" . | nindent 12 }}
             {{- range $k, $v := .Values.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

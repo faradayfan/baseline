@@ -27,6 +27,7 @@ spec:
                   value: "true"
                 - name: MEMORY_SOURCE
                   value: {{ .Values.memorySource | quote }}
+                {{- include "baseline.embedderEnv" . | nindent 16 }}
               envFrom:
                 - secretRef:
                     name: {{ include "baseline.secretName" . }}
