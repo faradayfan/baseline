@@ -22,6 +22,10 @@ help: ## List targets
 build: ## Build the binary to ./bin/baseline
 	$(GO) build -o ./bin/baseline ./cmd/baseline
 
+.PHONY: mcp
+mcp: ## Build the baseline-mcp CLI helper to ./bin/baseline-mcp
+	$(GO) build -o ./bin/baseline-mcp ./cmd/baseline-mcp
+
 .PHONY: test
 test: ## Unit tests only (no Docker)
 	$(GO) test -short ./...

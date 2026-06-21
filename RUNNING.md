@@ -362,6 +362,40 @@ curl -s localhost:8088/v1/context -H 'X-Baseline-Principal: local-dev'
 curl -s localhost:8088/v1/facts   -H 'X-Baseline-Principal: local-dev'
 ```
 
+## Poking the MCP tools directly (`baseline-mcp`)
+
+The MCP endpoint (`/mcp`) replies as Server-Sent Events whose payload is a
+JSON-encoded string — fiddly to parse from a `curl` one-liner. The `baseline-mcp`
+helper does it for you, so ad-hoc tool calls don't need hand-rolled SSE parsing.
+
+```bash
+make mcp                                   # build ./bin/baseline-mcp
+
+export BASELINE_PRINCIPAL=you              # or pass --principal each call
+export BASELINE_URL=http://localhost:8080  # default; --url to override
+
+./bin/baseline-mcp --list-tools            # what tools the server exposes
+./bin/baseline-mcp list_namespaces         # find a namespace id
+./bin/baseline-mcp search_facts --arg q="vulnerability scanning"
+
+# Author a fact end-to-end (propose → submit → review). --arg values that look
+# like JSON (objects/arrays) are parsed as JSON; everything else stays a string.
+./bin/baseline-mcp propose_fact \
+  --arg target_namespace=<id-from-list_namespaces> \
+  --arg proposed_statement="All projects must run grype scanning via pre-commit." \
+  --arg subject='{"type":"security.dependency-scanning","scope":"global"}' \
+  --arg tags='["security","tier:always"]'
+
+./bin/baseline-mcp submit_promotion  --arg promotion_id=<id>
+./bin/baseline-mcp review_promotion  --principal someone-else \
+  --arg promotion_id=<id> --arg action=approve   # SoD: can't approve your own
+```
+
+It reads `BASELINE_URL` / `BASELINE_PRINCIPAL` / `BASELINE_API_TOKEN` as flag
+fallbacks. Tool-level errors (bad args, RBAC, SoD) print readably instead of
+crashing a parser. This is a dev/ops convenience — agents use the MCP tools
+directly through the plugin; this is for humans poking from a shell.
+
 ## Day-to-day
 
 ```bash
