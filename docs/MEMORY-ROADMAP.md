@@ -138,6 +138,73 @@ built — there's no global-read tier. If onboarding-without-membership is desir
 needs either an auto-grant on onboarding or a genuine global-read tier on the org
 namespace. Deliberately deferred; documented in `plugin/README.md` ("seeing no facts").
 
+## Phase 6 — Memory mining (proposal-only fact inference)
+
+Closes the loop the whole system is named for. Today the memory→fact transition is
+**entirely human-initiated**: someone has to *notice* that a recurring memory is
+fact-worthy, re-author it into a structured `subject`/`statement`, and propose it. Mem0
+answers "what has the agent seen?"; nothing automatically asks "...and what of that
+should the org adopt?" This phase adds a server-side analyzer that **mines memories and
+proposes candidate facts** — and *only* proposes.
+
+**The load-bearing constraint (decided): the analyzer proposes; it never promotes.**
+It can only ever fill the review inbox. A human (or a namespace's separately-configured
+`AutoPromoteEngine`) owns the decision to make a candidate an active fact. This keeps
+the analyzer strictly *additive* to the trust model — it introduces **no new write path
+to facts**, only a new *source of proposals*. An org that wants every memory-derived
+fact eyeballed simply doesn't auto-promote that namespace; the candidates land in the
+human review queue. The analyzer's principal (`engine:memory-miner/vN`) is the
+**proposer**, so the existing separation-of-duties gate (`distinctApprovers()` excludes
+the proposer, unconditionally) already forbids it from ever counting toward approval —
+enforced for free, no new code.
+
+**Pipeline — only the analyzer is new; everything downstream already exists:**
+
+```text
+Mem0 memories ─▶ [analyzer] ─▶ candidate proposals ─▶ review inbox / AutoPromoteEngine ─▶ facts
+   (raw)         cluster +       POST /promotions       (human promotes; engine is          (active,
+                 infer subject   w/ candidate_memory_ids  opt-in per namespace)               audited)
+```
+
+| Stage | What it does | Status |
+| --- | --- | --- |
+| **Cluster** | Group memories that say the same thing (own 768-dim embedder). Recurrence is the signal — one memory is noise; the same thing across 5 sessions is fact-worthy. | new |
+| **Infer subject** | Derive a structured `{type, scope, qualifiers}` from free text. The genuinely novel inference — and **LLM-dependent**, the very thing the fact write-path avoids. Must be a *suggestion*, never authoritative. | new |
+| **Draft statement** | Produce a clean `proposed_statement`. | new (easy) |
+| **Conflict-check** | Does the inferred `canonical_key` collide with an active fact? | **free** — `POST /promotions` already sets `conflict_with` |
+| **Propose** | `POST /promotions` with `candidate_memory_ids` = the cluster. | **free** — provenance field exists for exactly this |
+| **Decide** | Human review, or a namespace's opt-in engine. | **free** — never the analyzer's call |
+
+`candidate_memory_ids` on `PromotionRequest` was added for precisely this: provenance
+from a machine-generated proposal. The analyzer is "the thing that finally populates it
+at scale."
+
+**Fail-closed on inference (mirrors the AutoPromoteEngine discipline).** If subject
+inference is low-confidence, the analyzer must **not** guess a `canonical_key` — drop
+the candidate, or emit it flagged "needs a human to supply the subject." A *wrong*
+subject is worse than no proposal: it pollutes deterministic conflict detection. The
+inferred subject is a *proposal to be validated*, never ground truth — the moment an
+inferred subject could write `canonical_key` directly, the determinism §14 protects
+would break. The LLM is reintroduced in the *right* place (candidate generation),
+downstream of which conflict-check and review stay deterministic.
+
+**Where it runs.** The existing **reaper** (`BASELINE_REAP=true`, a background worker on
+the same binary) is the model: a second periodic job (`BASELINE_MINE=true`, or a tick in
+the reaper) that scans, clusters, infers, and proposes. Stateless, restartable, fits the
+process model. Must be **version-isolated** (`memory-miner/vN` — registering `v2` doesn't
+change what `v1` proposed) and **auditable** (proposals carry `principal=engine:memory-miner/vN`).
+
+**Open questions (deferred with the phase):**
+
+- *Idempotency/churn:* don't re-propose the same cluster every tick — track which
+  memory clusters have already yielded a (pending or rejected) proposal so a rejected
+  candidate doesn't reappear forever.
+- *De-noising the source:* mine which memory types? Semantic/procedural are fact-shaped;
+  episodic ("what happened") usually isn't — likely filter to `type:semantic|procedural`.
+- *Promote-and-prune:* once a memory's content is adopted as a fact, the memory still
+  surfaces (lower-ranked) in `/context`. Whether to annotate/suppress the now-redundant
+  memory is the memory→fact *ergonomics* gap noted under Phase 2b — same open thread.
+
 ---
 
 ## Cross-cutting notes
