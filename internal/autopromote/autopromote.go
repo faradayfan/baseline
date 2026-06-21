@@ -47,8 +47,8 @@ type Decision struct {
 // Engine is the contract Baseline needs from an auto-promotion implementation
 // (§7.4). Implementations must be pure/deterministic and fail closed.
 type Engine interface {
-	ID() string                                   // e.g. "simple/v1"
-	Validate(rules json.RawMessage) error         // checked at policy-write time
+	ID() string                           // e.g. "simple/v1"
+	Validate(rules json.RawMessage) error // checked at policy-write time
 	Evaluate(ctx context.Context, c Candidate, rules json.RawMessage) (Decision, error)
 }
 

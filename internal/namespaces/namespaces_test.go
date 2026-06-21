@@ -4,7 +4,7 @@ import "testing"
 
 func TestDefaultPolicy(t *testing.T) {
 	tests := []struct {
-		kind         Kind
+		kind          Kind
 		wantApprovals int
 		wantAuto      bool
 		wantEngine    string

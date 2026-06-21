@@ -5,7 +5,7 @@ import "testing"
 func TestLoad(t *testing.T) {
 	// minimal required env for a valid config
 	base := map[string]string{
-		"DATABASE_URL": "postgres://localhost/baseline",
+		"DATABASE_URL":  "postgres://localhost/baseline",
 		"MEMORY_SOURCE": "none",
 	}
 

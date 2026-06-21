@@ -69,10 +69,6 @@ func (e *env) do(method, path string, body any, headers map[string]string) *http
 
 func asPrincipal(p string) map[string]string { return map[string]string{"X-Baseline-Principal": p} }
 
-func asAdmin(p string) map[string]string {
-	return map[string]string{"X-Baseline-Principal": p, "X-Baseline-Platform-Admin": "true"}
-}
-
 func decode(t *testing.T, resp *http.Response, dst any) {
 	t.Helper()
 	defer resp.Body.Close()

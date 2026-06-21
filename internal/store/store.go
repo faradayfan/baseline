@@ -49,7 +49,7 @@ func Migrate(ctx context.Context, databaseURL string) error {
 	if err != nil {
 		return fmt.Errorf("store: open for migrate: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := goose.UpContext(ctx, db, "migrations"); err != nil {
 		return fmt.Errorf("store: migrate up: %w", err)

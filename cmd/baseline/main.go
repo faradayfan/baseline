@@ -27,6 +27,10 @@ import (
 	"github.com/faradayfan/baseline/internal/store"
 )
 
+// version is stamped at release build time via -ldflags "-X main.version=…"
+// (see the release workflow). "dev" for local/unreleased builds.
+var version = "dev"
+
 func main() {
 	log := platform.NewLogger()
 
@@ -121,7 +125,7 @@ func main() {
 	// when enabled, the MCP-over-HTTP transport mounted at /mcp so remote clients
 	// can connect over the network (per-request principal from the header).
 	restHandler := app.Handler()
-	var topHandler http.Handler = restHandler
+	topHandler := restHandler
 	mcpHTTP := os.Getenv("BASELINE_MCP_HTTP") == "true"
 	if mcpHTTP {
 		mux := http.NewServeMux()
@@ -138,7 +142,7 @@ func main() {
 	}
 
 	go func() {
-		log.Info("listening", "addr", cfg.Addr, "memory_source", cfg.MemorySource, "mcp_http", mcpHTTP)
+		log.Info("listening", "version", version, "addr", cfg.Addr, "memory_source", cfg.MemorySource, "mcp_http", mcpHTTP)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("serve", "err", err)
 			os.Exit(1)

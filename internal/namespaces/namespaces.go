@@ -55,10 +55,11 @@ type AutoPromote struct {
 }
 
 // DefaultPolicy returns the seeded default for a namespace kind (§7.3):
-//   org     → 2 approvals, no auto-promote
-//   team    → 1 approval, simple/v1 (rules empty until configured)
-//   project → 1 approval, no auto-promote
-//   user    → 1 approval, no auto-promote (private scope)
+//
+//	org     → 2 approvals, no auto-promote
+//	team    → 1 approval, simple/v1 (rules empty until configured)
+//	project → 1 approval, no auto-promote
+//	user    → 1 approval, no auto-promote (private scope)
 func DefaultPolicy(k Kind) Policy {
 	switch k {
 	case KindOrg:

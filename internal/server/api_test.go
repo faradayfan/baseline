@@ -31,7 +31,7 @@ func hdr(principal string) map[string]string {
 
 func adminHdr(principal string) map[string]string {
 	return map[string]string{
-		"X-Baseline-Principal":       principal,
+		"X-Baseline-Principal":      principal,
 		"X-Baseline-Platform-Admin": "true",
 	}
 }

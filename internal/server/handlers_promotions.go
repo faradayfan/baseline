@@ -13,7 +13,7 @@ import (
 )
 
 type proposeReq struct {
-	TargetNamespace    uuid.UUID         `json:"target_namespace"`
+	TargetNamespace    uuid.UUID        `json:"target_namespace"`
 	ProposedStatement  string           `json:"proposed_statement"`
 	Subject            facts.Subject    `json:"subject"`
 	CandidateMemoryIDs []string         `json:"candidate_memory_ids,omitempty"`

@@ -13,10 +13,10 @@ import (
 type MemorySourceKind string
 
 const (
-	MemoryMem0 MemorySourceKind = "mem0"
-	MemoryZep  MemorySourceKind = "zep"
+	MemoryMem0  MemorySourceKind = "mem0"
+	MemoryZep   MemorySourceKind = "zep"
 	MemoryLetta MemorySourceKind = "letta"
-	MemoryNone MemorySourceKind = "none" // standards-only mode (§11.2)
+	MemoryNone  MemorySourceKind = "none" // standards-only mode (§11.2)
 )
 
 // Config is the fully-resolved runtime configuration, parsed from the environment

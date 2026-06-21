@@ -30,9 +30,9 @@ func (s *Server) listNamespaces(w http.ResponseWriter, r *http.Request) {
 }
 
 type createNamespaceReq struct {
-	Name     string            `json:"name"`
-	Kind     namespaces.Kind   `json:"kind"`
-	ParentID *uuid.UUID        `json:"parent_id,omitempty"`
+	Name     string             `json:"name"`
+	Kind     namespaces.Kind    `json:"kind"`
+	ParentID *uuid.UUID         `json:"parent_id,omitempty"`
 	Policy   *namespaces.Policy `json:"policy,omitempty"`
 }
 

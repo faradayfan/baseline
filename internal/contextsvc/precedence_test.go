@@ -6,12 +6,12 @@ import "testing"
 // (§14.9), as pure logic.
 func TestOutranks(t *testing.T) {
 	tests := []struct {
-		name                       string
-		aAuth                      bool
-		aKind                      string
-		bAuth                      bool
-		bKind                      string
-		want                       bool
+		name  string
+		aAuth bool
+		aKind string
+		bAuth bool
+		bKind string
+		want  bool
 	}{
 		{"user beats org", false, "user", false, "org", true},
 		{"project beats team", false, "project", false, "team", true},

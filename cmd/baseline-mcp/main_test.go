@@ -71,14 +71,14 @@ func TestSmartValue(t *testing.T) {
 		in   string
 		want any
 	}{
-		{"approve", "approve"},                         // plain string
-		{"50ee83e9-uuid", "50ee83e9-uuid"},             // not a JSON literal
-		{`{"type":"x"}`, map[string]any{"type": "x"}},  // object
-		{`["a","b"]`, []any{"a", "b"}},                 // array
-		{"true", true},                                 // bool
-		{"42", float64(42)},                            // number
-		{"", ""},                                       // empty stays empty string
-		{"3-tier", "3-tier"},                           // starts digit but not valid JSON → string
+		{"approve", "approve"},                        // plain string
+		{"50ee83e9-uuid", "50ee83e9-uuid"},            // not a JSON literal
+		{`{"type":"x"}`, map[string]any{"type": "x"}}, // object
+		{`["a","b"]`, []any{"a", "b"}},                // array
+		{"true", true},                                // bool
+		{"42", float64(42)},                           // number
+		{"", ""},                                      // empty stays empty string
+		{"3-tier", "3-tier"},                          // starts digit but not valid JSON → string
 	}
 	for _, c := range cases {
 		got := smartValue(c.in)

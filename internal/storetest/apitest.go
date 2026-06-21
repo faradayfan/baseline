@@ -68,7 +68,7 @@ func (a *API) Do(t *testing.T, method, path string, body any, headers map[string
 // DecodeJSON reads and unmarshals a response body into dst, closing the body.
 func DecodeJSON(t *testing.T, resp *http.Response, dst any) {
 	t.Helper()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
 		t.Fatalf("apitest: decode json: %v", err)
 	}

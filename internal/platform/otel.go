@@ -15,7 +15,7 @@ import (
 // flushes exporters. With no exporter configured it uses in-process providers so
 // instrumentation is always safe to call (spans/metrics are simply not exported).
 type OTel struct {
-	Tracer   trace.Tracer
+	Tracer    trace.Tracer
 	meterDone func(context.Context) error
 }
 

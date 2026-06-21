@@ -7,10 +7,11 @@ import (
 
 // §14.10 — each §7.2 matrix cell is positively and negatively tested, end-to-end.
 // The matrix actions are exercised through the endpoints that gate on them:
-//   read facts  → GET /v1/namespaces/{id}
-//   propose     → POST /v1/promotions
-//   approve     → POST /v1/promotions/{id}/approve
-//   manage      → POST /v1/namespaces/{id}/members
+//
+//	read facts  → GET /v1/namespaces/{id}
+//	propose     → POST /v1/promotions
+//	approve     → POST /v1/promotions/{id}/approve
+//	manage      → POST /v1/namespaces/{id}/members
 func Test14_10_RBACMatrix(t *testing.T) {
 	if testing.Short() {
 		t.Skip("conformance")

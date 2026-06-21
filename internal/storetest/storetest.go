@@ -6,11 +6,11 @@
 // helper), then use the returned Harness to get isolated database handles:
 //
 //   - h.Tx(t)      — a transaction rolled back at test end. Fast, fully isolated,
-//                    the default. Cannot observe COMMITs or cross-tx behavior.
+//     the default. Cannot observe COMMITs or cross-tx behavior.
 //   - h.FreshDB(t) — a brand-new database with migrations applied, dropped at
-//                    test end. Use for committed-state and concurrency tests
-//                    (e.g. the facts_active_unique index §14.2, optimistic
-//                    concurrency 409 §14.8) that tx-rollback cannot exercise.
+//     test end. Use for committed-state and concurrency tests
+//     (e.g. the facts_active_unique index §14.2, optimistic
+//     concurrency 409 §14.8) that tx-rollback cannot exercise.
 package storetest
 
 import (

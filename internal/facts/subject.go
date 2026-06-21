@@ -26,7 +26,8 @@ type Subject struct {
 //  3. join with ':'.
 //
 // e.g. {build.command, service-foo}            -> "build.command:service-foo"
-//      {build.command, service-foo, env=prod}  -> "build.command:service-foo:env=prod"
+//
+//	{build.command, service-foo, env=prod}  -> "build.command:service-foo:env=prod"
 //
 // Identical subjects always yield identical keys, in any process. Differently
 // worded statements about the same subject collapse to one key (driving

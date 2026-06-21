@@ -178,7 +178,7 @@ func (s Source) do(req *http.Request, dst any) error {
 	if err != nil {
 		return fmt.Errorf("mem0: %s %s: %w", req.Method, req.URL.Path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return memory.ErrNotFound
 	}

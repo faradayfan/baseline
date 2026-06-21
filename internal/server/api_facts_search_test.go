@@ -115,7 +115,7 @@ func TestSearchFacts_NoLeakAcrossNamespaces(t *testing.T) {
 	grant(t, pool, "alice", mine, "reader") // alice can read ONLY mine
 
 	secret := seedActiveFactEmbedded(t, pool, theirs, "k:secret", "secret", 5) // best match, unreadable
-	_ = seedActiveFactEmbedded(t, pool, mine, "k:visible", "visible", 200)   // weaker, readable
+	_ = seedActiveFactEmbedded(t, pool, mine, "k:visible", "visible", 200)     // weaker, readable
 	_ = theirs
 
 	resp := api.Do(t, "GET", "/v1/facts?q=match", nil, hdr("alice"))

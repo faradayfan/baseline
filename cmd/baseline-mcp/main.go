@@ -43,7 +43,14 @@ import (
 	"time"
 )
 
+// version is stamped at release build time via -ldflags "-X main.version=…".
+var version = "dev"
+
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-version") {
+		fmt.Println("baseline-mcp " + version)
+		return
+	}
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "baseline-mcp: "+err.Error())
 		os.Exit(1)
@@ -203,7 +210,7 @@ func rpc(baseURL, principal, token, method string, params map[string]any, raw bo
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode == http.StatusUnauthorized {
 		return fmt.Errorf("401 unauthorized — set --principal (or BASELINE_PRINCIPAL)")

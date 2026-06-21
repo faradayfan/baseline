@@ -115,9 +115,9 @@ type ListFilter struct {
 	Namespaces   []uuid.UUID // restrict to these (caller's entitlements)
 	Status       *Status
 	CanonicalKey *string
-	Tag          *string  // single-tag exact membership (legacy)
-	Tags         []string // ANY-of these tags (OR); authoritative:true and tier:always always pass
-	Text         *string  // q: case-insensitive substring (fallback when no QueryVec)
+	Tag          *string   // single-tag exact membership (legacy)
+	Tags         []string  // ANY-of these tags (OR); authoritative:true and tier:always always pass
+	Text         *string   // q: case-insensitive substring (fallback when no QueryVec)
 	QueryVec     []float32 // q embedded: rank by cosine distance (semantic search)
 	Limit        int
 }

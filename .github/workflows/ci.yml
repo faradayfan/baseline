@@ -116,3 +116,158 @@ jobs:
 
       - name: Template render (smoke — fails on bad templates/values)
         run: helm template baseline deploy/charts/baseline > /dev/null
+
+  # ---- Go formatting: gofmt must be clean. Separate from lint so a formatting
+  # nit gives a clear, fast signal. -------------------------------------------
+  format:
+    name: Format (gofmt)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: true
+      - name: gofmt
+        # Print offenders then fail if any file is unformatted.
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"; echo "$unformatted"
+            exit 1
+          fi
+
+  # ---- Go lint: golangci-lint v2 (config in .golangci.yml). Blocking — the
+  # codebase is lint-clean against the enabled set. -----------------------------
+  lint:
+    name: Lint (golangci-lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          # v2.x is the line that supports Go 1.26 (verified locally at v2.12.x).
+          version: v2.1.6
+          args: --timeout=5m
+
+  # ---- Security scanning: the org guardrails require lint+format+security on
+  # every pipeline, and grype-based dependency scanning specifically. ----------
+  security:
+    name: Security (govulncheck · grype · gosec)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: true
+
+      # Go vuln DB: only flags vulns reachable in the call graph — low noise, so
+      # it is BLOCKING.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      # grype: scan the source tree's dependencies. Fail on High+Critical.
+      # (The same tool scans built images in the `build` job.)
+      - name: grype (dependencies)
+        uses: anchore/scan-action@v4
+        with:
+          path: "."
+          severity-cutoff: high
+          fail-build: true
+          output-format: table
+
+      # gosec SAST: NON-BLOCKING on day 1 (-no-fail) to avoid a wall of findings
+      # gating merges. Triage, then drop -no-fail to make it blocking.
+      - name: gosec (SAST, non-blocking)
+        uses: securego/gosec@master
+        with:
+          args: -severity high -confidence high -no-fail ./...
+
+  # ---- Build: prove both binaries and all four images compile on every PR.
+  # Single-arch (amd64) + load locally so grype can scan the first-party images.
+  # NO push here — release publishing (multi-arch → GHCR) lives in
+  # release-please.yml. ------------------------------------------------------
+  build:
+    name: Build (binaries · images · image scan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: true
+
+      - name: Build binaries
+        run: |
+          go build -o /dev/null ./cmd/baseline
+          go build -o /dev/null ./cmd/baseline-mcp
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build service image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: baseline:ci
+
+      - name: Build UI image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          load: true
+          push: false
+          tags: baseline-ui:ci
+
+      - name: Build Postgres image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./deploy/postgres
+          load: true
+          push: false
+          tags: baseline-postgresql:ci
+
+      - name: Build mem0-api image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./deploy/mem0-api
+          build-args: PATCH_OLLAMA=1
+          load: true
+          push: false
+          tags: baseline-mem0-api:ci
+
+      # grype the first-party images (service + UI). The postgres/mem0 images are
+      # third-party bases we don't control — scanning them on every PR is noise.
+      - name: grype service image
+        uses: anchore/scan-action@v4
+        with:
+          image: "baseline:ci"
+          severity-cutoff: high
+          fail-build: true
+      - name: grype UI image
+        uses: anchore/scan-action@v4
+        with:
+          image: "baseline-ui:ci"
+          severity-cutoff: high
+          fail-build: true
