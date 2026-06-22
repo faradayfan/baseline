@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/faradayfan/baseline/compare/v0.2.0...v0.2.1) (2026-06-22)
+
+
+### Bug Fixes
+
+* **contextsvc:** degrade to facts-only when the memory backend is unreachable ([428c619](https://github.com/faradayfan/baseline/commit/428c619e3f160a7ca2f7e08d6c1cb6aa835d0de0))
+* **frontend:** upgrade Node 22 → 26 ([c443e2f](https://github.com/faradayfan/baseline/commit/c443e2f644ecd697254b5da681574233897c6ba7))
+
 ## [0.2.0](https://github.com/faradayfan/baseline/compare/v0.1.0...v0.2.0) (2026-06-21)
 
 
