@@ -4,8 +4,8 @@ description: >-
   Baseline — facts-management & governance service (with bundled pgvector
   Postgres).
 type: application
-version: 0.2.0
-appVersion: 0.2.0
+version: 0.2.1
+appVersion: 0.2.1
 dependencies:
   - name: postgresql
     version: 16.x
