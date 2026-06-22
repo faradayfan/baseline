@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -185,7 +186,13 @@ func (s *Service) maybeMergeMemories(ctx context.Context, q Query, facts []Item)
 
 	mems, err := s.mem.List(ctx, q.ActorID, memory.ListOpts{Limit: q.Limit})
 	if err != nil {
-		return nil, fmt.Errorf("contextsvc: list memories: %w", err)
+		// Memories are the lowest-precedence, best-effort layer (§10 step 5). A
+		// memory backend outage (e.g. Mem0 mid-restart) must NOT fail the whole
+		// read path — the facts are the authoritative part and were already
+		// resolved. Log and degrade to facts-only rather than 500.
+		slog.Default().WarnContext(ctx, "contextsvc: memory merge skipped (backend read failed)",
+			"actor", q.ActorID, "err", err)
+		return applyLimit(out, q.Limit), nil
 	}
 	factKeys := map[string]struct{}{}
 	for _, f := range facts {

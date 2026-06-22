@@ -2,6 +2,7 @@ package contextsvc_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -24,6 +25,20 @@ func (f fakeSource) Search(context.Context, string, string, memory.SearchOpts) (
 }
 func (f fakeSource) Get(context.Context, string) (memory.Memory, error) {
 	return memory.Memory{}, memory.ErrNotFound
+}
+
+// erroringSource simulates a memory backend that is down/unreachable (e.g. Mem0
+// mid-restart) — every read errors.
+type erroringSource struct{}
+
+func (erroringSource) List(context.Context, string, memory.ListOpts) ([]memory.Memory, error) {
+	return nil, errors.New("mem0 unreachable: connection refused")
+}
+func (erroringSource) Search(context.Context, string, string, memory.SearchOpts) ([]memory.Memory, error) {
+	return nil, errors.New("mem0 unreachable: connection refused")
+}
+func (erroringSource) Get(context.Context, string) (memory.Memory, error) {
+	return memory.Memory{}, errors.New("mem0 unreachable: connection refused")
 }
 
 func seedOrgFact(t *testing.T, pool *pgxpool.Pool, key, statement string) uuid.UUID {
@@ -245,5 +260,29 @@ func TestResolve_MemoryMerge(t *testing.T) {
 	}
 	if items[1].Source != contextsvc.SourceMemory || items[1].Statement != "personal note" {
 		t.Errorf("second item should be the non-dup memory, got %+v", items[1])
+	}
+}
+
+// TestResolve_MemorySourceDownDegrades asserts that when the memory backend is
+// unreachable (e.g. Mem0 mid-restart), /context does NOT fail — it returns the
+// authoritative facts and silently drops the best-effort memory merge. Memories
+// are the lowest-precedence layer; a Mem0 outage must not take down the agent's
+// read path. (Regression: this used to return an error → HTTP 500.)
+func TestResolve_MemorySourceDownDegrades(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	pool := storetest.Shared(t).FreshDB(t)
+	ns := seedOrgFact(t, pool, "policy:ci", "fact: deploys via CI")
+
+	svc := contextsvc.NewService(pool, erroringSource{})
+	items, err := svc.Resolve(context.Background(), contextsvc.Query{
+		ActorID: "alice", Namespaces: []uuid.UUID{ns}, IncludeMemories: true,
+	})
+	if err != nil {
+		t.Fatalf("memory backend down must NOT fail /context; got err: %v", err)
+	}
+	if len(items) != 1 || items[0].Source != contextsvc.SourceFact {
+		t.Fatalf("want the fact returned (memories degraded away), got %+v", items)
 	}
 }
