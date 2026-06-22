@@ -1,17 +1,14 @@
 apiVersion: v2
 name: baseline
-description: Baseline — facts-management & governance service (with bundled pgvector Postgres).
+description: >-
+  Baseline — facts-management & governance service (with bundled pgvector
+  Postgres).
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
-
-# Postgres via the Bitnami subchart (aliased "postgres" → service <release>-postgres),
-# pointed at a custom image built FROM bitnamilegacy/postgresql with pgvector copied
-# in (deploy/postgres/Dockerfile). This keeps the subchart's battle-tested NFS /
-# volume-permissions handling while satisfying Baseline's `vector` requirement.
+version: 0.2.0
+appVersion: 0.2.0
 dependencies:
   - name: postgresql
-    version: "16.x"
+    version: 16.x
     repository: https://charts.bitnami.com/bitnami
     alias: postgres
     condition: postgres.enabled
