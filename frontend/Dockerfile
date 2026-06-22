@@ -6,9 +6,11 @@
 # BACKEND_URL (e.g. http://RELEASE-baseline:8080) is substituted into the nginx
 # conf at startup so one image works across environments.
 
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
-RUN corepack enable
+# Node 26 dropped the bundled corepack, so install pnpm directly. Pinned to the
+# version in frontend/.tool-versions to keep the build reproducible.
+RUN npm install -g pnpm@11.5.3
 # pnpm-workspace.yaml carries the esbuild build-script approval (allowBuilds);
 # without it pnpm 11 fails install on the ignored-builds gate.
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
