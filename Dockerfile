@@ -6,7 +6,7 @@
 #   docker buildx build --platform linux/arm64 -t <registry>/baseline:<tag> --push .
 
 # --- build stage ---
-FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27 AS build
 WORKDIR /src
 
 # Cache modules first.
